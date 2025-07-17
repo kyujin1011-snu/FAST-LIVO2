@@ -4,6 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        #- /Global Options1
         - /Status1
         - /Axes1
         - /mapping1
@@ -71,9 +72,9 @@ Visualization Manager:
     - Alpha: 1
       Class: rviz/Axes
       Enabled: true
-      Length: 0.699999988079071
+      Length: 0.699999988079071   #얘도 막 수정됨
       Name: Axes
-      Radius: 0.10000000149011612
+      Radius: 0.10000000149011612   #얘도 막 수정됨.
       Reference Frame: <Fixed Frame>
       Show Trail: false
       Value: true
@@ -88,7 +89,7 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 239; 41; 41
+          Color: 239; 41; 41  #얘도 막 수정됨.
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: true
@@ -107,7 +108,7 @@ Visualization Manager:
           Use Fixed Frame: true
           Use rainbow: false
           Value: true
-        - Alpha: 0.5
+        - Alpha: 0.5  #이값도 막 수정됨.
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
             Max Value: 15
@@ -193,8 +194,8 @@ Visualization Manager:
           Queue Size: 10
           Shape:
             Alpha: 1
-            Axes Length: 0.5
-            Axes Radius: 0.15000000596046448
+            Axes Length: 0.5     #얘도 막 수정됨.
+            Axes Radius: 0.15000000596046448   #얘도 막 수정됨.
             Color: 255; 85; 0
             Head Length: 0
             Head Radius: 0
@@ -215,7 +216,7 @@ Visualization Manager:
       Head Length: 0
       Length: 0.30000001192092896
       Line Style: Billboards
-      Line Width: 0.03999999910593033
+      Line Width: 0.03999999910593033   #얘도 막 수정
       Name: Path
       Offset:
         X: 0
@@ -523,7 +524,7 @@ Visualization Manager:
       Value: true
   Enabled: true
   Global Options:
-    Background Color: 0; 0; 0
+    Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
     Fixed Frame: camera_init
     Frame Rate: 30
@@ -546,6 +547,7 @@ Visualization Manager:
       Single click: true
       Topic: /clicked_point
   Value: true
+  #이부분만 수정됨
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
@@ -568,6 +570,7 @@ Visualization Manager:
       Pitch: 1.4797966480255127
       Target Frame: drone
       Yaw: 3.251800537109375
+      #이윗부분만 수정됨.
     Saved:
       - Class: rviz/Orbit
         Distance: 117.53474426269531
