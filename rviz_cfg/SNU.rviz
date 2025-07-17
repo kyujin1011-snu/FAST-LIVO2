@@ -522,11 +522,25 @@ Visualization Manager:
       Transport Hint: raw
       Unreliable: false
       Value: true
+      
+    - Class: rviz/PointCloud2
+      Enabled: true
+      Name: Points (os_lidar)
+      Topic: /points
+      Color Transformer: XYZ
+      Style: Points
+      Size (m): 0.05
+      Queue Size: 10
+      Alpha: 1
+      Position Transformer: XYZ
+      Unreliable: false
+      Use Fixed Frame: true
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
-    Fixed Frame: camera_init
+    Fixed Frame: os_lidar
     Frame Rate: 30
   Name: root
   Tools:
