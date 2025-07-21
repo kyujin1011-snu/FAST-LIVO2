@@ -243,6 +243,7 @@ void LIVMapper::gravityAlignment()
 void LIVMapper::processImu() 
 {
   // double t0 = omp_get_wtime();
+  std::cout << "processImu" << std::endl;
 
   p_imu->Process2(LidarMeasures, _state, feats_undistort);
 
@@ -261,6 +262,7 @@ void LIVMapper::processImu()
 
 void LIVMapper::stateEstimationAndMapping() 
 {
+
   switch (LidarMeasures.lio_vio_flg) 
   {
     case VIO:
@@ -529,6 +531,7 @@ void LIVMapper::savePCD()
 
 void LIVMapper::run() 
 {
+  std::cout << "run start " << std::endl;
   ros::Rate rate(5000);
   while (ros::ok()) 
   {
@@ -687,6 +690,7 @@ void LIVMapper::RGBpointBodyToWorld(PointType const *const pi, PointType *const 
 
 void LIVMapper::standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
+  std::cout << "[DEBUG] standard_pcl_cbk called! timestamp: " << msg->header.stamp.toSec() << std::endl;
   if (!lidar_en) return;
   mtx_buffer.lock();
 
@@ -754,10 +758,12 @@ void LIVMapper::livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_i
 void LIVMapper::imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
 {
   if (!imu_en) return;
-
+  
   if (last_timestamp_lidar < 0.0) return;
   // ROS_INFO("get imu at time: %.6f", msg_in->header.stamp.toSec());
   sensor_msgs::Imu::Ptr msg(new sensor_msgs::Imu(*msg_in));
+  std::cout << "[DEBUG] imu_cbk called! timestamp: " << msg->header.stamp.toSec() << std::endl;
+
   msg->header.stamp = ros::Time().fromSec(msg->header.stamp.toSec() - imu_time_offset);
   double timestamp = msg->header.stamp.toSec();
 
@@ -815,6 +821,7 @@ void LIVMapper::img_cbk(const sensor_msgs::ImageConstPtr &msg_in)
 {
   if (!img_en) return;
   sensor_msgs::Image::Ptr msg(new sensor_msgs::Image(*msg_in));
+  std::cout << "[DEBUG] img_cbk called! timestamp: " << msg->header.stamp.toSec() << std::endl;
   // if ((abs(msg->header.stamp.toSec() - last_timestamp_img) > 0.2 && last_timestamp_img > 0) || sync_jump_flag)
   // {
   //   ROS_WARN("img jumps %.3f\n", msg->header.stamp.toSec() - last_timestamp_img);
@@ -868,9 +875,11 @@ void LIVMapper::img_cbk(const sensor_msgs::ImageConstPtr &msg_in)
 
 bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
-  if (lid_raw_data_buffer.empty() && lidar_en) return false;
-  if (img_buffer.empty() && img_en) return false;
-  if (imu_buffer.empty() && imu_en) return false;
+  if (lid_raw_data_buffer.empty() && lidar_en) {return false; }
+  if (img_buffer.empty() && img_en) {return false; }
+  if (imu_buffer.empty() && imu_en) {return false; }
+  
+  //std::cout << " (IMU, Image, Lidar) all of buffer ON" << std::endl;
 
   switch (slam_mode_)
   {
@@ -957,9 +966,9 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 
       if (img_capture_time > lid_newest_time || img_capture_time > imu_newest_time)
       {
-        // ROS_ERROR("lost first camera frame");
-        // printf("img_capture_time, lid_newest_time, imu_newest_time: %lf , %lf
-        // , %lf \n", img_capture_time, lid_newest_time, imu_newest_time);
+        ROS_ERROR("lost first camera frame");
+        printf("img_capture_time, lid_newest_time, imu_newest_time: %lf , %lf, %lf \n", img_capture_time, lid_newest_time, imu_newest_time);
+
         return false;
       }
 

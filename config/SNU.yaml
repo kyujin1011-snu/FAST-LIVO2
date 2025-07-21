@@ -18,9 +18,9 @@ extrin_calib:
   Pcl: [0.08372735744, 0.02091938060, -0.13379192488]
 
 time_offset: #일단 대충
-  lidar_time_offset: -0.1
+  lidar_time_offset: 0.0
   imu_time_offset: 0.0
-  img_time_offset: 0.0
+  img_time_offset: -1720678552.0
   exposure_time_init: 0.0
 
 preprocess: 
