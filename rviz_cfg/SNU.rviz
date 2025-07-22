@@ -4,7 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        #- /Global Options1
+        - /Global Options1
         - /Status1
         - /Axes1
         - /mapping1
@@ -541,7 +541,7 @@ Visualization Manager:
     Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
     Fixed Frame: os_lidar
-    Frame Rate: 30
+    Frame Rate: 60
   Name: root
   Tools:
     - Class: rviz/Interact
