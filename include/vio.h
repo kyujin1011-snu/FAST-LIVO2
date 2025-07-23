@@ -83,13 +83,32 @@ public:
 class VIOManager
 {
 public:
+  std::vector<vk::AbstractCamera*> m_cameras;
+  std::vector<M3D> m_R_c_i_vec; 
+  std::vector<V3D> m_P_c_i_vec; 
+  std::vector<M3D> m_R_c_l_vec;
+  std::vector<V3D> m_P_c_l_vec;
+  M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;
+  V3D Pli, Pci, Pcl, Pcw;
+  void setCameraByIndex(int index);
+  void setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P);
+  void setExtrinsicParameters(
+    const M3D& R_li, const V3D& P_li,
+    const std::vector<M3D>& R_cl_vec, const std::vector<V3D>& P_cl_vec,
+    const std::vector<vk::AbstractCamera*>& cameras
+  );
+
+  void processSingleFrame(cv::Mat& img, vector<pointWithVar>& pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree*>& feat_map);
+  void initializeFrame(const StatesGroup& state_in, cv::Mat& representative_img);
+  void updateMapAfterVIO(const std::vector<cv::Mat>& imgs, vector<pointWithVar>& pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree*>& feat_map, double img_time);
+
+
+
   int grid_size;
   vk::AbstractCamera *cam;
   vk::PinholeCamera *pinhole_cam;
   StatesGroup *state;
   StatesGroup *state_propagat;
-  M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;
-  V3D Pli, Pci, Pcl, Pcw;
   vector<int> grid_num;
   vector<int> map_index;
   vector<int> border_flag;
@@ -119,9 +138,9 @@ public:
   int frame_count = 0;
   bool plot_flag;
 
+
   Matrix<double, DIM_STATE, DIM_STATE> G, H_T_H;
   MatrixXd K, H_sub_inv;
-
   ofstream fout_camera, fout_colmap;
   unordered_map<VOXEL_LOCATION, VOXEL_POINTS *> feat_map;
   unordered_map<VOXEL_LOCATION, int> sub_feat_map; 
@@ -143,10 +162,13 @@ public:
   void updateStateInverse(cv::Mat img, int level);
   void updateState(cv::Mat img, int level);
   void processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map, double img_time);
+  
   void retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map);
   void generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg);
-  void setImuToLidarExtrinsic(const V3D &transl, const M3D &rot);
-  void setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P);
+  //void setImuToLidarExtrinsic(const V3D &transl, const M3D &rot);
+
+  
+
   void initializeVIO();
   void getImagePatch(cv::Mat img, V2D pc, float *patch_tmp, int level);
   void computeProjectionJacobian(V3D p, MD(2, 3) & J);

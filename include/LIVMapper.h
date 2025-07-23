@@ -20,10 +20,45 @@ which is included as part of this source code package.
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Path.h>
 #include <vikit/camera_loader.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <sensor_msgs/Image.h>
+#include <algorithm> 
+#include <tuple>     
+#include <vector>
+#include <deque>
+#include <string>
+#include <opencv2/opencv.hpp>
+#include <ros/ros.h>
+#include <sensor_msgs/Image.h>
 
 class LIVMapper
 {
 public:
+  int num_of_cam = 1;                    // 카메라 개수
+  std::vector<std::string> img_topics;   // 카메라 토픽 이름들
+  
+  // Subscriber와 데이터 버퍼를 벡터로 관리
+  std::vector<ros::Subscriber> sub_imgs;
+  std::vector<std::deque<cv::Mat>> m_img_buffers;
+  std::vector<std::deque<double>> m_img_time_buffers;
+  
+  // 콜백 함수는 카메라 인덱스를 인자로 받음
+  void img_cbk(const sensor_msgs::ImageConstPtr &msg_in, int cam_idx);
+
+  void readParameters(ros::NodeHandle &nh);
+  void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
+  
+  std::vector<M3D> m_R_c_l_vec;
+  std::vector<V3D> m_P_c_l_vec;
+  
+  V3D extT;
+  M3D extR;
+
+  std::vector<double>last_timestamp_imgs;
+
+
   LIVMapper(ros::NodeHandle &nh);
   ~LIVMapper();
   void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
@@ -48,7 +83,10 @@ public:
   void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg);
   void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_in);
   void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in);
-  void img_cbk(const sensor_msgs::ImageConstPtr &msg_in);
+  //void img_cbk(const sensor_msgs::ImageConstPtr &msg_in);
+  void multi_cam_cbk(const sensor_msgs::ImageConstPtr& msg_c0, const sensor_msgs::ImageConstPtr& msg_c1, const sensor_msgs::ImageConstPtr& msg_c2, const sensor_msgs::ImageConstPtr& msg_c3);
+
+
   void publish_img_rgb(const image_transport::Publisher &pubImage, VIOManagerPtr vio_manager);
   void publish_frame_world(const ros::Publisher &pubLaserCloudFullRes, VIOManagerPtr vio_manager);
   void publish_visual_sub_map(const ros::Publisher &pubSubVisualMap);
@@ -70,15 +108,15 @@ public:
   
   string root_dir;
   string lid_topic, imu_topic, seq_name, img_topic;
-  V3D extT;
-  M3D extR;
 
   int feats_down_size = 0, max_iterations = 0;
 
   double res_mean_last = 0.05;
   double gyr_cov = 0, acc_cov = 0, inv_expo_cov = 0;
   double blind_rgb_points = 0.0;
-  double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0, last_timestamp_img = -1.0;
+  double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0
+  
+  
   double filter_size_surf_min = 0;
   double filter_size_pcd = 0;
   double _first_lidar_time = 0.0;
@@ -121,8 +159,6 @@ public:
   deque<PointCloudXYZI::Ptr> lid_raw_data_buffer;
   deque<double> lid_header_time_buffer;
   deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
-  deque<cv::Mat> img_buffer;
-  deque<double> img_time_buffer;
   vector<pointWithVar> _pv_list;
   vector<double> extrinT;
   vector<double> extrinR;
@@ -138,26 +174,29 @@ public:
   PointCloudXYZI::Ptr pcl_wait_pub;
   PointCloudXYZRGB::Ptr pcl_wait_save;
   PointCloudXYZI::Ptr pcl_wait_save_intensity;
-
+  
   ofstream fout_pre, fout_out, fout_pcd_pos, fout_points;
-
+  
   pcl::VoxelGrid<PointType> downSizeFilterSurf;
-
+  
   V3D euler_cur;
 
   LidarMeasureGroup LidarMeasures;
   StatesGroup _state;
   StatesGroup  state_propagat;
-
+  
   nav_msgs::Path path;
   nav_msgs::Odometry odomAftMapped;
   geometry_msgs::Quaternion geoQuat;
   geometry_msgs::PoseStamped msg_body_pose;
-
+  
   PreprocessPtr p_pre;
   ImuProcessPtr p_imu;
   VoxelMapManagerPtr voxelmap_manager;
   VIOManagerPtr vio_manager;
+  
+  
+
 
   ros::Publisher plane_pub;
   ros::Publisher voxel_pub;

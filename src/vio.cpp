@@ -15,6 +15,7 @@ which is included as part of this source code package.
 VIOManager::VIOManager()
 {
   // downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+  cam = nullptr;
 }
 
 VIOManager::~VIOManager()
@@ -26,11 +27,182 @@ VIOManager::~VIOManager()
   feat_map.clear();
 }
 
-void VIOManager::setImuToLidarExtrinsic(const V3D &transl, const M3D &rot)
+
+
+void VIOManager::setCameraByIndex(int index)
 {
-  Pli = -rot.transpose() * transl;
-  Rli = rot.transpose();
+  if (index < 0 || index >= m_cameras.size()) {
+      ROS_ERROR("VIOManager: Invalid camera index provided: %d", index);
+      return;
+  }
+
+  // 현재 사용할 카메라의 intrinsic과 extrinsic(T_ci)으로 내부 변수들을 설정
+  this->cam = m_cameras[index];
+  this->Rci = m_R_c_i_vec[index];
+  this->Pci = m_P_c_i_vec[index];
+
+  // 현재 카메라에 맞춰 LiDAR-Camera extrinsic(T_cl)도 함께 설정
+  this->Rcl = m_R_c_l_vec[index];
+  this->Pcl = m_P_c_l_vec[index];
 }
+
+
+void VIOManager::setExtrinsicParameters(
+  const M3D& rot, const V3D& transl,
+  const std::vector<M3D>& R_cl_vec_in, const std::vector<V3D>& P_cl_vec_in,
+  const std::vector<vk::AbstractCamera*>& cameras_in)
+{
+  // 1. T_li 저장
+  Rli = rot.transpose();
+  Pli = -rot.transpose() * transl;
+
+  // 2. T_cl 벡터 저장
+  m_R_c_l_vec = R_cl_vec_in;
+  m_P_c_l_vec = P_cl_vec_in;
+
+  // 3. 카메라 모델 저장
+  m_cameras = cameras_in;
+
+  // 4. 각 카메라에 대한 T_ci를 미리 계산하여 저장
+  size_t num_cams = m_cameras.size();
+  m_R_c_i_vec.resize(num_cams);
+  m_P_c_i_vec.resize(num_cams);
+
+  for (size_t i = 0; i < num_cams; ++i)
+  {
+      // R_ci = R_cl * R_li
+      m_R_c_i_vec[i] = m_R_c_l_vec[i] * Rli;
+      
+      // P_ci = R_cl * P_li + P_cl
+      m_P_c_i_vec[i] = m_R_c_l_vec[i] * Pli + m_P_c_l_vec[i];
+  }
+  
+  ROS_INFO("VIOManager: All extrinsic parameters have been initialized and T_ci calculated.");
+}
+
+// In VIOManager.cpp
+
+void VIOManager::initializeFrame(const StatesGroup& state_in, cv::Mat& representative_img)
+{
+    // 대표 이미지(예: 첫 번째 카메라 이미지)를 그레이스케일로 변환
+    cv::Mat gray_img;
+    if (representative_img.channels() == 3) {
+        cv::cvtColor(representative_img, gray_img, CV_BGR2GRAY);
+    } else {
+        gray_img = representative_img.clone();
+    }
+
+    // 새로운 Frame 객체를 생성합니다. 이 Frame은 현재 타임스탬프의 기준이 됩니다.
+    // 카메라 모델(cam)은 setCameraByIndex에 의해 마지막으로 설정된 것을 따르지만,
+    // 각 카메라 처리 시 올바른 모델로 교체되므로 초기값은 중요하지 않습니다.
+    new_frame_.reset(new Frame(cam, gray_img));
+
+    // LIO 업데이트가 완료된 최신 state로 Frame의 Pose를 동기화합니다.
+    updateFrameState(state_in);
+}
+
+// In VIOManager.cpp
+
+void VIOManager::processSingleFrame(cv::Mat& img, vector<pointWithVar>& pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree*>& feat_map)
+{
+    // --- 이미지 전처리 ---
+    if (width != img.cols || height != img.rows) {
+        if (img.empty()) {
+            ROS_WARN("[ VIO ] Empty Image provided for processing!");
+            return;
+        }
+        cv::resize(img, img, cv::Size(width, height), 0, 0, CV_INTER_LINEAR);
+    }
+    if (img.channels() == 3) {
+        cv::cvtColor(img, img, CV_BGR2GRAY);
+    }
+
+    // --- VIO 핵심 처리 ---
+    
+    // 1. 그리드 리셋: 각 카메라의 이미지-포인트 관계를 새로 계산하기 위해 그리드를 초기화합니다.
+    resetGrid();
+    
+    // 2. 맵 포인트 검색: 현재 카메라의 Pose와 FoV를 기준으로 볼 수 있는 시각 지도 포인트를 맵에서 가져옵니다.
+    retrieveFromVisualSparseMap(img, pg, feat_map);
+    
+    // 3. EKF 업데이트: 검색된 포인트와 현재 이미지를 이용해 광도 오차를 계산하고,
+    //    이를 기반으로 EKF의 상태(_state)를 업데이트합니다.
+    computeJacobianAndUpdateEKF(img);
+}
+
+
+
+// In VIOManager.cpp
+
+void VIOManager::updateMapAfterVIO(const std::vector<cv::Mat>& imgs, vector<pointWithVar>& pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree*>& feat_map, double img_time)
+{
+    // 맵 업데이트 및 시각화는 대표 카메라(예: 0번)를 기준으로 수행합니다.
+    // 필요에 따라 모든 카메라의 이미지를 순회하며 포인트를 생성/업데이트할 수도 있습니다.
+    int representative_cam_idx = 0;
+    setCameraByIndex(representative_cam_idx);
+
+    // 대표 이미지 준비
+    cv::Mat representative_img_gray;
+    const cv::Mat& representative_img_color = imgs[representative_cam_idx];
+
+    if (representative_img_color.channels() == 3) {
+        cv::cvtColor(representative_img_color, representative_img_gray, CV_BGR2GRAY);
+        img_rgb = representative_img_color.clone(); // 시각화용 RGB 이미지 저장
+    } else {
+        representative_img_gray = representative_img_color.clone();
+        cv::cvtColor(representative_img_gray, img_rgb, CV_GRAY2BGR); // 회색조를 BGR로 변환하여 저장
+    }
+    
+    // --- 맵 업데이트 작업 ---
+    double t_start = omp_get_wtime();
+    
+    generateVisualMapPoints(representative_img_gray, pg);
+    double t_gen = omp_get_wtime();
+
+    updateVisualMapPoints(representative_img_gray);
+    double t_update_pts = omp_get_wtime();
+
+    updateReferencePatch(feat_map);
+    double t_update_patch = omp_get_wtime();
+
+    // --- 시각화 및 기타 후처리 ---
+    plotTrackedPoints();
+    if (plot_flag) projectPatchFromRefToCur(feat_map);
+    if (colmap_output_en) dumpDataForColmap();
+    
+    double t_end = omp_get_wtime();
+    
+    // --- 성능 로깅 ---
+    frame_count++;
+    double total_time = (t_gen - t_start) + (t_update_pts - t_gen) + (t_update_patch - t_update_pts); // EKF 시간 제외
+    ave_total = ave_total * (frame_count - 1) / frame_count + total_time / frame_count;
+    
+    printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+    printf("\033[1;34m|                     VIO Map Update Time                     |\033[0m\n");
+    printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+    printf("\033[1;34m| %-29s | %-27s |\033[0m\n", "Stage", "Time (secs)");
+    printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+    printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "generateVisualMapPoints", t_gen - t_start);
+    printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "updateVisualMapPoints", t_update_pts - t_gen);
+    printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "updateReferencePatch", t_update_patch - t_update_pts);
+    printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+    printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "Current Total Map Update Time", total_time);
+    printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "Average Total Time", ave_total);
+    printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+}
+
+
+
+
+
+
+
+
+// void VIOManager::setImuToLidarExtrinsic(const V3D &transl, const M3D &rot)
+// {
+//   Pli = -rot.transpose() * transl;
+//   Rli = rot.transpose();
+// }
 
 void VIOManager::setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P)
 {

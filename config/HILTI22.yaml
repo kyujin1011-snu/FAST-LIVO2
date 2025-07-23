@@ -1,27 +1,50 @@
 common:
-  img_topic: "/alphasense/cam0/image_raw"
+  # 4개의 카메라 토픽을 리스트로 정의
+  img_topics: 
+    - "/alphasense/cam0/image_raw" # 앞 (Front)
+    - "/alphasense/cam1/image_raw" # 오른쪽 (Right)
+    - "/alphasense/cam2/image_raw" # 뒤 (Back)
+    - "/alphasense/cam3/image_raw" # 왼쪽 (Left)
   lid_topic: "/hesai/pandar"
   imu_topic: "/alphasense/imu"
+  num_of_cam: 4 # 카메라 개수 명시
   img_en: 1
   lidar_en: 1
   ros_driver_bug_fix: false
 
 extrin_calib:
-  # Hilti-2022
+  # LiDAR to IMU Extrinsics (T_li)
   extrinsic_T: [-0.001, -0.00855, 0.055] 
   extrinsic_R: [0, -1, 0, -1, 0, 0, 0, 0, -1]
   
-  # Hilti-2023
-  # extrinsic_T: [-0.006730146149038548, -0.006897049862999071, 0.049898628062256645] 
-  # extrinsic_R: [0.006609639848469365, -0.9999773650294649, 0.0012578115132016717, 
-  #               -0.9999762249571927, -0.006612093869054189, -0.0019569708811106104, 
-  #               0.001965243352927244, -0.0012448467359610184, -0.9999972940839232]
+  # --- Camera to LiDAR Extrinsics (T_cl) ---
+  # 각 카메라별로 R_cl과 P_cl을 정의합니다.
+  # P_cl은 0벡터로, R_cl은 앞뒤좌우를 보도록 설정합니다.
+  # (카메라 좌표계 z축이 광축, x축이 오른쪽, y축이 아래라고 가정)
 
-  # Hilti
-  Rcl: [ -0.999926,  -0.00670802, 0.0101073,
-         -0.0100912, -0.00242564, -0.999946,
-          0.00673218,-0.999975, 0.00235777 ]
-  Pcl: [ -0.0549762, 0.0675401, -0.0520599 ]
+  # Cam 0: Front (카메라 z축이 라이다 x축 방향)
+  R_cl_0: [ 0,  0,  1,
+           -1,  0,  0,
+            0, -1,  0]
+  P_cl_0: [0.0, 0.0, 0.0]
+
+  # Cam 1: Right (카메라 z축이 라이다 y축 방향)
+  R_cl_1: [ 1,  0,  0,
+            0,  0,  1,
+            0, -1,  0]
+  P_cl_1: [0.0, 0.0, 0.0]
+
+  # Cam 2: Back (카메라 z축이 라이다 -x축 방향)
+  R_cl_2: [ 0,  0, -1,
+            1,  0,  0,
+            0, -1,  0]
+  P_cl_2: [0.0, 0.0, 0.0]
+
+  # Cam 3: Left (카메라 z축이 라이다 -y축 방향)
+  R_cl_3: [-1,  0,  0,
+            0,  0, -1,
+            0,  1,  0]
+  P_cl_3: [0.0, 0.0, 0.0]
 
 time_offset:
   imu_time_offset: 0.0
