@@ -21,14 +21,14 @@ time_offset: #일단 대충
   exposure_time_init: 0.0
 
 preprocess: 
-  point_filter_num: 3
+  point_filter_num: 2
   filter_size_surf: 0.1
   lidar_type: 3 # Ouster
   scan_line: 128
   blind: 1.0
 
 vio: #일단 대충
-  max_iterations: 5
+  max_iterations: 10
   outlier_threshold: 1000 # 78 100 156 #100 200 500 700 infinite
   img_point_cov: 100 # 100 1000 
   patch_size: 8
@@ -49,13 +49,13 @@ imu: #일단 ig_lio/config/ncd.yaml 에서 가져옴
   b_gyr_cov: 0.000004
 
 lio:
-  max_iterations: 5
+  max_iterations: 10
   dept_err: 0.02
   beam_err: 0.01
   min_eigen_value: 0.0025 # 0.0025
   voxel_size: 0.5
   max_layer: 2
-  max_points_num: 50
+  max_points_num: 100
   layer_init_num: [5, 5, 5, 5, 5]
 
 local_map:  

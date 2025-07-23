@@ -51,7 +51,7 @@ Toolbars:
 Visualization Manager:
   Class: ""
   Displays:
-    - Alpha: 1
+    - Alpha: 1 #0.5로 되어있긴함
       Cell Size: 1
       Class: rviz/Grid
       Color: 160; 160; 164
@@ -66,7 +66,7 @@ Visualization Manager:
         Y: 0
         Z: 0
       Plane: XY
-      Plane Cell Count: 160
+      Plane Cell Count: 160 #10으로 되어있긴함 ㅈ도안중요
       Reference Frame: <Fixed Frame>
       Value: false
     - Alpha: 1
@@ -106,14 +106,14 @@ Visualization Manager:
           Topic: /cloud_registered
           Unreliable: false
           Use Fixed Frame: true
-          Use rainbow: false
+          Use rainbow: true
           Value: true
         - Alpha: 0.5  #이값도 막 수정됨.
-          Autocompute Intensity Bounds: false
+          Autocompute Intensity Bounds: true
           Autocompute Value Bounds:
-            Max Value: 15
-            Min Value: -5
-            Value: false
+            Max Value: 10
+            Min Value: -10
+            Value: true
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
@@ -134,7 +134,7 @@ Visualization Manager:
           Size (m): 0.004999999888241291
           Style: Points
           Topic: /cloud_registered
-          Unreliable: true
+          Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -540,7 +540,7 @@ Visualization Manager:
   Global Options:
     Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
-    Fixed Frame: aft_mapped
+    Fixed Frame: camera_init
     Frame Rate: 60
   Name: root
   Tools:
