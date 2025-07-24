@@ -44,8 +44,8 @@ LIVMapper::LIVMapper(ros::NodeHandle &nh)
   path.header.stamp = ros::Time::now();
   path.header.frame_id = "camera_init";
 
-  m_img_buffers = {&m_img_buffer_c0, &m_img_buffer_c1, &m_img_buffer_c2, &m_img_buffer_c3};
-  m_img_time_buffers = {&m_img_time_buffer_c0, &m_img_time_buffer_c1, &m_img_time_buffer_c2, &m_img_time_buffer_c3};
+  m_img_buffers.resize(num_of_cam);
+  m_img_time_buffers.resize(num_of_cam);
 }
 
 LIVMapper::~LIVMapper() {}
@@ -172,7 +172,7 @@ void LIVMapper::initializeComponents()
     last_timestamp_imgs[i] = -1.0;
     if (!vk::camera_loader::loadFromRosNs("laserMapping", cameras[i])) throw std::runtime_error("Camera model not correctly specified.");
   }
-  vio_manager->void setExtrinsicParameters(extR, extT, m_R_c_l_vec, m_P_c_l_vec, cameras);
+  vio_manager->setExtrinsicParameters(extR, extT, m_R_c_l_vec, m_P_c_l_vec, cameras);
 
   vio_manager->state = &_state;
   vio_manager->state_propagat = &state_propagat;
@@ -320,17 +320,18 @@ void LIVMapper::processImu()
 
 void LIVMapper::stateEstimationAndMapping() 
 {
-
-  switch (LidarMeasures.lio_vio_flg) 
-  {
-    case VIO:
-      handleVIO();
-      break;
-    case LIO:
-    case LO:
-      handleLIO();
-      break;
-  }
+  handleVIO();
+  handleLIO();
+  // switch (LidarMeasures.lio_vio_flg) 
+  // {
+  //   case VIO:
+  //     handleVIO();
+  //     break;
+  //   case LIO:
+  //   case LO:
+  //     handleLIO();
+  //     break;
+  // }
 }
 
 // In LIVMapper.cpp
@@ -339,14 +340,14 @@ void LIVMapper::handleVIO()
 {
     // --- 1. 사전 작업 및 유효성 검사 ---
     auto& m = LidarMeasures.measures.back();
+    if (imu_prop_enable) { // EKF 상태는 LIO 결과로 갱신
+        ekf_finish_once = true;
+        latest_ekf_state = _state;
+        latest_ekf_time = LidarMeasures.last_lio_update_time;
+        state_update_flg = true;
+    }
+
     if (m.imgs.empty() || pcl_w_wait_pub->empty() || (pcl_w_wait_pub == nullptr)) {
-        // VIO 처리를 위한 이미지나 포인트 클라우드가 없으면 스킵
-        if (imu_prop_enable) { // EKF 상태는 LIO 결과로 갱신
-            ekf_finish_once = true;
-            latest_ekf_state = _state;
-            latest_ekf_time = LidarMeasures.last_lio_update_time;
-            state_update_flg = true;
-        }
         return;
     }
 
@@ -379,14 +380,6 @@ void LIVMapper::handleVIO()
     // 3.3 모든 EKF 업데이트 후 맵 업데이트 (한 번만 실행)
     vio_manager->updateMapAfterVIO(m.imgs, _pv_list, voxelmap_manager->voxel_map_,
                                    LidarMeasures.last_lio_update_time - _first_lidar_time);
-
-    // --- 4. VIO 처리 후 작업 ---
-    if (imu_prop_enable) {
-        ekf_finish_once = true;
-        latest_ekf_state = _state;
-        latest_ekf_time = LidarMeasures.last_lio_update_time;
-        state_update_flg = true;
-    }
 
     // 결과 퍼블리싱
     publish_frame_world(pubLaserCloudFullRes, vio_manager);
@@ -757,30 +750,6 @@ void LIVMapper::RGBpointBodyToWorld(PointType const *const pi, PointType *const 
   po->intensity = pi->intensity;
 }
 
-void LIVMapper::multi_cam_cbk(const sensor_msgs::ImageConstPtr& msg_c0, const sensor_msgs::ImageConstPtr& msg_c1,
-  const sensor_msgs::ImageConstPtr& msg_c2, const sensor_msgs::ImageConstPtr& msg_c3)
-{
-std::lock_guard<std::mutex> lock(mtx_buffer);
-
-// 각 카메라 메시지를 해당 채널의 버퍼에 저장
-if (!msg_c0->data.empty()) {
-m_img_time_buffer_c0.push_back(msg_c0->header.stamp.toSec());
-m_img_buffer_c0.push_back(getImageFromMsg(msg_c0));
-}
-if (!msg_c1->data.empty()) {
-m_img_time_buffer_c1.push_back(msg_c1->header.stamp.toSec());
-m_img_buffer_c1.push_back(getImageFromMsg(msg_c1));
-}
-if (!msg_c2->data.empty()) {
-m_img_time_buffer_c2.push_back(msg_c2->header.stamp.toSec());
-m_img_buffer_c2.push_back(getImageFromMsg(msg_c2));
-}
-if (!msg_c3->data.empty()) {
-m_img_time_buffer_c3.push_back(msg_c3->header.stamp.toSec());
-m_img_buffer_c3.push_back(getImageFromMsg(msg_c3));
-}
-}
-
 
 
 
@@ -969,11 +938,6 @@ void LIVMapper::img_cbk(const sensor_msgs::ImageConstPtr &msg_in, int cam_idx)
   sig_buffer.notify_all();
 }
 
-// LIVMapper.cpp 내부에 이 함수를 구현하거나 대체하세요.
-// 또한, LIVMapper 클래스의 멤버 변수로 4개의 카메라 버퍼를 가지고 있다고 가정합니다.
-// std::vector<std::deque<cv::Mat>*> m_img_buffers;
-// std::vector<std::deque<double>*> m_img_time_buffers;
-
 bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
     // 스레드 안전을 위해 뮤텍스 잠금
@@ -996,6 +960,9 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
         return false;
     }
 
+
+
+
     // --- 1. 이전 프레임에서 남은 LiDAR 포인트 이월 ---
     // 이전 LIO 업데이트에서 현재 이미지 시간 이후에 발생한 포인트들을 현재 처리할 클라우드에 추가
     *(meas.pcl_proc_cur) = *(meas.pcl_proc_next);
@@ -1008,36 +975,61 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     double start_time = meas.last_lio_update_time < 0 ? 0 : meas.last_lio_update_time;
     double end_time = start_time + time_window;
 
-    // 시간 창 내에서 각 카메라의 가장 마지막(최신) 이미지를 찾음
-    std::vector<std::tuple<double, cv::Mat, int>> selected_candidates;
-    std::vector<bool> camera_has_image(num_of_cam, false);
+        // 각 카메라 채널 버퍼의 현재 탐색 위치를 가리키는 포인터(인덱스)
+    std::vector<size_t> pointers(num_of_cam, 0);
 
-    for (int i = 0; i < num_of_cam; ++i) {
-        double last_img_time = -1.0;
-        cv::Mat last_img;
-        for (size_t j = 0; j < m_img_time_buffers[i].size(); ++j) {
-            double img_time = m_img_time_buffers[i].at(j);
-            if (img_time >= start_time && img_time < end_time) {
-                // exposure_time_init을 더해 실제 캡처 시간을 계산
-                last_img_time = img_time + exposure_time_init;
-                last_img = m_img_buffers[i].at(j);
-                camera_has_image[i] = true;
+    // 최종 후보군을 저장할 변수들. map을 사용하면 삽입/삭제가 용이함.
+    // Key: camera_idx, Value: {timestamp, image}
+    std::map<int, std::pair<double, cv::Mat>> candidates;
+    int candidate_count = 0;
+    double key_frame_time = -1.0;
+
+    bool search_active = true;
+    while (search_active && candidate_count < num_of_cam)
+    {
+        double min_time = std::numeric_limits<double>::max();
+        int next_cam_idx = -1;
+        for (int i = 0; i < num_of_cam; ++i) {
+            if (pointers[i] >= m_img_time_buffers[i].size()) {
+                continue;
             }
-            if (img_time >= end_time) break;
+            double current_img_time = m_img_time_buffers[i][pointers[i]];
+            if (current_img_time >= end_time) {
+                continue;
+            }else if (current_img_time < start_time) {
+              pointers[i]++;
+              continue;
+            }
+            if (current_img_time < min_time) {
+                min_time = current_img_time;
+                next_cam_idx = i;
+            }
         }
-        if (camera_has_image[i]) {
-            selected_candidates.emplace_back(last_img_time, last_img, i);
+        if (next_cam_idx == -1) {
+            search_active = false;
+            continue;
         }
+        double capture_time = min_time + exposure_time_init;
+        cv::Mat image = m_img_buffers[next_cam_idx][pointers[next_cam_idx]];
+        if (candidates.count(next_cam_idx)) {
+            candidates[next_cam_idx] = {capture_time, image};
+        } 
+        else {
+            candidates[next_cam_idx] = {capture_time, image};
+            candidate_count++;
+        }
+        key_frame_time = capture_time;
+        pointers[next_cam_idx]++;
     }
-
-    // 동기화할 이미지가 없으면 실패
-    if (selected_candidates.empty()) {
+    if (candidates.empty()) {
         return false;
     }
-    
-    // 선택된 이미지들 중 가장 늦은 시간을 key_frame_time으로 설정
-    double key_frame_time = std::get<0>(*std::max_element(selected_candidates.begin(), selected_candidates.end(), 
-        [](const auto& a, const auto& b){ return std::get<0>(a) < std::get<0>(b); }));
+
+    meas.measures.clear();
+
+    // auto& m = meas.measures.back(); // MeasureGroup에 대한 참조
+    // m.imgs.clear();
+    // m.img_camera_indices.clear();
 
     // --- 3. 데이터 유효성 재검사 (미래 데이터 확보 확인) ---
     // key_frame_time까지 처리할 LiDAR와 IMU 데이터가 버퍼에 있는지 확인
@@ -1051,16 +1043,17 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 
     // --- num_of_cam. 데이터 그룹핑 (LidarMeasureGroup 채우기) ---
     
+    
     // num_of_cam.1. 이미지 데이터 채우기
-    meas.measures.clear();
     struct MeasureGroup m;
     m.vio_time = key_frame_time; // VIO 업데이트 기준 시간
     m.lio_time = key_frame_time; // LIO 업데이트 기준 시간도 동일하게 설정
     
-    for (const auto& cand : selected_candidates) {
-        m.imgs.push_back(std::get<1>(cand));
-        m.img_camera_indices.push_back(std::get<2>(cand));
+    for (auto const& [cam_idx, val] : candidates) {
+        m.imgs.push_back(val.second); // cv::Mat
+        m.img_camera_indices.push_back(cam_idx);
     }
+    
     
     // num_of_cam.2. IMU 데이터 채우기
     // 마지막 업데이트 시간부터 현재 key_frame_time까지의 IMU 데이터를 수집
@@ -1107,16 +1100,13 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
         lid_header_time_buffer.pop_front();
     }
 
-    meas.lidar_frame_beg_time = last_update_time;
-    meas.lidar_frame_end_time = key_frame_time;
+    // meas.lidar_frame_beg_time = last_update_time;
+    // meas.lidar_frame_end_time = key_frame_time;
 
-    // --- 5. 버퍼 정리 및 상태 업데이트 ---
-    // 처리된 이미지들을 버퍼에서 최종 제거
     for (int i = 0; i < num_of_cam; ++i) {
-        if (camera_has_image[i]) {
-            // 해당 카메라의 key_frame_time 이전의 모든 이미지를 제거
-            double cam_key_time = std::get<0>(selected_candidates[i]); // 실제 이미지의 타임스탬프
-            while (!m_img_time_buffers[i].empty() && m_img_time_buffers[i].front() + exposure_time_init <= cam_key_time) {
+        if (candidates.count(i)) {
+            double cam_key_time = candidates[i].first; // 실제 이미지의 타임스탬프
+            while (!m_img_time_buffers[i].empty() && m_img_time_buffers[i].front() + exposure_time_init < cam_key_time) {
                 m_img_time_buffers[i].pop_front();
                 m_img_buffers[i].pop_front();
             }
@@ -1124,7 +1114,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     }
     
     meas.measures.push_back(m);
-    meas.lio_vio_flg = LIVO; // 이 패키지는 LIO와 VIO를 모두 처리해야 함을 명시
+    //meas.lio_vio_flg = LIVO; // 이 패키지는 LIO와 VIO를 모두 처리해야 함을 명시
     meas.last_lio_update_time = key_frame_time; // 마지막 업데이트 시간 갱신
 
     // 뮤텍스 해제 후 다른 스레드에 알림
@@ -1132,6 +1122,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 
     return true;
 }
+
 void LIVMapper::publish_img_rgb(const image_transport::Publisher &pubImage, VIOManagerPtr vio_manager)
 {
   cv::Mat img_rgb = vio_manager->img_cp;

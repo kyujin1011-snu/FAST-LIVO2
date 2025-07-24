@@ -61,7 +61,6 @@ public:
 
   LIVMapper(ros::NodeHandle &nh);
   ~LIVMapper();
-  void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
   void initializeComponents();
   void initializeFiles();
   void run();
@@ -84,7 +83,7 @@ public:
   void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_in);
   void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in);
   //void img_cbk(const sensor_msgs::ImageConstPtr &msg_in);
-  void multi_cam_cbk(const sensor_msgs::ImageConstPtr& msg_c0, const sensor_msgs::ImageConstPtr& msg_c1, const sensor_msgs::ImageConstPtr& msg_c2, const sensor_msgs::ImageConstPtr& msg_c3);
+  
 
 
   void publish_img_rgb(const image_transport::Publisher &pubImage, VIOManagerPtr vio_manager);
@@ -94,7 +93,6 @@ public:
   void publish_odometry(const ros::Publisher &pubOdomAftMapped);
   void publish_mavros(const ros::Publisher &mavros_pose_publisher);
   void publish_path(const ros::Publisher pubPath);
-  void readParameters(ros::NodeHandle &nh);
   template <typename T> void set_posestamp(T &out);
   template <typename T> void pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi, Eigen::Matrix<T, 3, 1> &po);
   template <typename T> Eigen::Matrix<T, 3, 1> pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi);
@@ -114,8 +112,7 @@ public:
   double res_mean_last = 0.05;
   double gyr_cov = 0, acc_cov = 0, inv_expo_cov = 0;
   double blind_rgb_points = 0.0;
-  double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0
-  
+  double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0;
   
   double filter_size_surf_min = 0;
   double filter_size_pcd = 0;
