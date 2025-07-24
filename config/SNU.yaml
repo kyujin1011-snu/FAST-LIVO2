@@ -23,7 +23,7 @@ time_offset: #일단 대충
 preprocess: 
   point_filter_num: 2
   filter_size_surf: 0.1
-  lidar_type: 3 # Ouster
+  lidar_type: "OUST64" # Ouster
   scan_line: 128
   blind: 1.0
 

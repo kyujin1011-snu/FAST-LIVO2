@@ -103,7 +103,7 @@ Visualization Manager:
           Size (Pixels): 4
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /points
+          Topic: /cloud_registered
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: false
@@ -133,7 +133,7 @@ Visualization Manager:
           Size (Pixels): 1
           Size (m): 0.004999999888241291
           Style: Points
-          Topic: /points
+          Topic: /cloud_registered
           Unreliable: true
           Use Fixed Frame: true
           Use rainbow: true
