@@ -540,8 +540,8 @@ Visualization Manager:
   Global Options:
     Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
-    Fixed Frame: os_liadr
-    Frame Rate: 60
+    Fixed Frame: camera_init
+    Frame Rate: 30
   Name: root
   Tools:
     - Class: rviz/Interact
