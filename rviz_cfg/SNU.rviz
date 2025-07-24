@@ -540,7 +540,7 @@ Visualization Manager:
   Global Options:
     Background Color: 0; 0; 0  #이값도 막 수정됨.
     Default Light: true
-    Fixed Frame: camera_init
+    Fixed Frame: os_liadr
     Frame Rate: 60
   Name: root
   Tools:
