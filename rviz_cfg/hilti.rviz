@@ -512,11 +512,47 @@ Visualization Manager:
       Value: false
     - Class: rviz/Image
       Enabled: true
-      Image Topic: /rgb_img
+      Image Topic: /rgb_img0
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Image
+      Name: Image0
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /rgb_img1
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image1
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /rgb_img2
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image2
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /rgb_img3
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image3
       Normalize Range: true
       Queue Size: 2
       Transport Hint: raw
