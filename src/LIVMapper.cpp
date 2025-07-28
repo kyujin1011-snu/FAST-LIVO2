@@ -84,6 +84,7 @@ void LIVMapper::readParameters(ros::NodeHandle &nh) {
   nh.param<int>("common/img_en", img_en, 1);
   nh.param<int>("common/lidar_en", lidar_en, 1);
   nh.param<string>("common/img_topic", img_topic, "/left_camera/image");
+  nh.param<double>("common/sync_time_window", time_window_, 0.075);
 
   nh.param<bool>("vio/normal_en", normal_en, true);
   nh.param<bool>("vio/inverse_composition_en", inverse_composition_en, false);
@@ -656,8 +657,11 @@ void LIVMapper::run() {
     // if (!p_imu->imu_time_init) continue;
 
     stateEstimationAndMapping();
+
+    ROS_INFO("Saving path");
+    save_path_to_file();
   }
-  savePCD();
+  // savePCD();
 }
 
 void LIVMapper::prop_imu_once(StatesGroup &imu_prop_state, const double dt,
@@ -1032,7 +1036,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
   case WAIT:
   case VIO: {
 
-    double time_window = 0.1; // 예: LiDAR 주파수가 10Hz일 경우. 파라미터화 가능
+    double time_window = time_window_;
 
     if (meas.last_lio_update_time <= 0.0)
       meas.last_lio_update_time = lid_header_time_buffer.front();
@@ -1387,4 +1391,87 @@ void LIVMapper::publish_path(const ros::Publisher pubPath) {
   msg_body_pose.header.frame_id = "camera_init";
   path.poses.push_back(msg_body_pose);
   pubPath.publish(path);
+}
+
+void LIVMapper::save_path_to_file() {
+  if (path.poses.empty()) {
+    ROS_WARN("Path is empty. Nothing to save.");
+    return;
+  }
+
+  // --- 1. TUM Trajectory Format 파일 저장 ---
+  // 프로젝트 Log 폴더에 저장될 경로를 생성합니다.
+  // ROOT_DIR은 CMakeLists.txt에 정의되어 있어야 합니다.
+  std::string tum_output_path =
+      std::string(ROOT_DIR) + "/Log/final_trajectory_tum.txt";
+  std::ofstream tum_file(tum_output_path);
+
+  if (!tum_file.is_open()) {
+    ROS_ERROR("Failed to open file to save TUM trajectory: %s",
+              tum_output_path.c_str());
+  } else {
+    // 파일 헤더 주석 (TUM 포맷 표준)
+    tum_file << "# timestamp tx ty tz qx qy qz qw" << std::endl;
+
+    // 모든 pose 데이터를 순회하며 TUM 포맷으로 저장
+    for (const auto &pose_stamped : path.poses) {
+      tum_file << std::fixed << std::setprecision(6) // 소수점 6자리로 고정
+               << pose_stamped.header.stamp.toSec() << " "
+               << pose_stamped.pose.position.x << " "
+               << pose_stamped.pose.position.y << " "
+               << pose_stamped.pose.position.z << " "
+               << pose_stamped.pose.orientation.x << " "
+               << pose_stamped.pose.orientation.y << " "
+               << pose_stamped.pose.orientation.z << " "
+               << pose_stamped.pose.orientation.w << std::endl;
+    }
+    tum_file.close();
+    ROS_INFO("Successfully saved TUM trajectory to %s",
+             tum_output_path.c_str());
+  }
+
+  // --- 2. Gnuplot을 이용한 2D 경로(XY-plane projected path) 이미지 저장 ---
+  std::vector<double> x_coords, y_coords;
+  for (const auto &pose_stamped : path.poses) {
+    x_coords.push_back(pose_stamped.pose.position.x);
+    y_coords.push_back(pose_stamped.pose.position.y);
+  }
+
+  // gnuplot 프로세스를 파이프로 엽니다.
+  FILE *gnuplotPipe = popen("gnuplot", "w");
+  if (gnuplotPipe) {
+    // gnuplot 명령어 전송
+    fprintf(gnuplotPipe, "set title 'Robot Trajectory'\n");
+    fprintf(gnuplotPipe,
+            "set xlabel 'X coordinate (m)'\n"); // 오타 수정: gnuploset ->
+                                                // fprintf(gnuplotPipe, "set
+    fprintf(gnuplotPipe, "set ylabel 'Y coordinate (m)'\n");
+    fprintf(gnuplotPipe, "set grid\n");
+    fprintf(gnuplotPipe, "set size ratio -1\n"); // 축 비율을 1:1로 설정
+
+    // PNG 파일로 출력 설정 (프로젝트 Log 폴더에 저장)
+    std::string png_output_path =
+        std::string(ROOT_DIR) + "/Log/final_trajectory_gnuplot.png";
+    fprintf(gnuplotPipe, "set terminal pngcairo size 800,800\n");
+    fprintf(gnuplotPipe, "set output '%s'\n", png_output_path.c_str());
+
+    // 데이터와 함께 플롯 명령어 전송. '-'는 표준 입력을 의미합니다.
+    fprintf(gnuplotPipe, "plot '-' with lines title 'Path'\n");
+
+    // 데이터 포인트를 gnuplot에 전송
+    for (size_t i = 0; i < x_coords.size(); ++i) {
+      fprintf(gnuplotPipe, "%f %f\n", x_coords[i], y_coords[i]);
+    }
+
+    // 데이터 전송 끝을 알리는 'e' (end of data)
+    fprintf(gnuplotPipe, "e\n");
+
+    // 버퍼를 비우고 파이프를 닫아 파일 저장을 완료합니다.
+    fflush(gnuplotPipe);
+    pclose(gnuplotPipe);
+
+    ROS_INFO("Successfully saved plot to %s", png_output_path.c_str());
+  } else {
+    ROS_ERROR("Could not open gnuplot pipe. Is gnuplot installed?");
+  }
 }

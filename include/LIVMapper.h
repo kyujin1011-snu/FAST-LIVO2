@@ -17,9 +17,12 @@ which is included as part of this source code package.
 #include "preprocess.h"
 #include "vio.h"
 #include <algorithm>
+#include <cstdio>
 #include <cv_bridge/cv_bridge.h>
 #include <deque>
+#include <fstream>
 #include <image_transport/image_transport.h>
+#include <iomanip>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -51,6 +54,9 @@ public:
   void initializeSubscribersAndPublishers(ros::NodeHandle &nh,
                                           image_transport::ImageTransport &it);
 
+  void save_path_to_file();
+
+  double time_window_ = 0.1;
   std::vector<M3D> m_R_c_l_vec;
   std::vector<V3D> m_P_c_l_vec;
 
