@@ -188,7 +188,7 @@ void LIVMapper::initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_tr
 {
   sub_pcl = p_pre->lidar_type == AVIA ? 
             nh.subscribe(lid_topic, 200000, &LIVMapper::livox_pcl_cbk, this): 
-            nh.subscribe(lid_topic, 200000, &LIVMapper::standard_pcl_cbk, this);
+            nh.subscribe(lid_topic, 200000, &LIVMapper::standard_pcl_cbk, this);  //우린이거
   sub_imu = nh.subscribe(imu_topic, 200000, &LIVMapper::imu_cbk, this);
   sub_img = nh.subscribe(img_topic, 200000, &LIVMapper::img_cbk, this);
   
@@ -244,9 +244,10 @@ void LIVMapper::processImu()
 {
   // double t0 = omp_get_wtime();
 
-  p_imu->Process2(LidarMeasures, _state, feats_undistort);
+  p_imu->Process2(LidarMeasures, _state, feats_undistort); 
+  //현재 라이더와 현재 위치(위치,속도등), 전체 라이더 포인트 받고 외괵되지 않은 라이더 포인트 맵 생성i
 
-  if (gravity_align_en) gravityAlignment();
+  if (gravity_align_en) gravityAlignment(); //중력방향으로 z축 맞추는거 할지말지
 
   state_propagat = _state;
   voxelmap_manager->state_ = _state;
@@ -266,8 +267,8 @@ void LIVMapper::stateEstimationAndMapping()
     case VIO:
       handleVIO();
       break;
-    case LIO:
-    case LO:
+    case LIO://얘는 break없으니 handleLIO실행
+    case LO: 
       handleLIO();
       break;
   }
@@ -531,15 +532,15 @@ void LIVMapper::run()
   ros::Rate rate(5000);
   while (ros::ok()) 
   {
-    ros::spinOnce();
-    if (!sync_packages(LidarMeasures)) 
+    ros::spinOnce(); //처음에만 기본 ros제공 쓰고 나머지는 커스텀하려고
+    if (!sync_packages(LidarMeasures)) //다음 livo돌릴 수 있으면 돌리고 True 나옴.
     {
       rate.sleep();
       continue;
     }
-    handleFirstFrame();
+    handleFirstFrame(); //첫프레임만 돌아감 무시해도될듯
 
-    processImu();
+    processImu(); //imu로 현재 라이더 프레임 정렬해서 더하기
 
     // if (!p_imu->imu_time_init) continue;
 
@@ -921,7 +922,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     break;
   }
 
-  case LIVO:
+  case LIVO: //vio먼저, Lio 다음으로.
   {
     /*** For LIVO mode, the time of LIO update is set to be the same as VIO, LIO
      * first than VIO imediatly ***/
@@ -946,7 +947,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       double lid_newest_time = lid_header_time_buffer.back() + lid_raw_data_buffer.back()->points.back().curvature / double(1000);
       double imu_newest_time = imu_buffer.back()->header.stamp.toSec();
 
-      if (img_capture_time < meas.last_lio_update_time + 0.00001)
+      if (img_capture_time < meas.last_lio_update_time + 0.00001)//아마 vio돌리고 lio돌리는데 lio 끝나자마자 바로 vio돌리는거 막기
       {
         img_buffer.pop_front();
         img_time_buffer.pop_front();
@@ -955,7 +956,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       }
 
       if (img_capture_time > lid_newest_time || img_capture_time > imu_newest_time)
-      {
+      { //첫번째껀 vio돌리고 lio돌려야 하니까. 두번째껀 img앞뒤로 imu 있어야 보간할 수 있음.
         // ROS_ERROR("lost first camera frame");
         // printf("img_capture_time, lid_newest_time, imu_newest_time: %lf , %lf
         // , %lf \n", img_capture_time, lid_newest_time, imu_newest_time);
@@ -969,7 +970,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       m.imu.clear();
       m.lio_time = img_capture_time;
       mtx_buffer.lock();
-      while (!imu_buffer.empty())
+      while (!imu_buffer.empty()) //imu버퍼에 뭐가있다면 그냥 계속 순서대로 m.imu에 넣다가, img보다 늦게 찍힌 imu 나오면 그때부터 stop
       {
         if (imu_buffer.front()->header.stamp.toSec() > m.lio_time) break;
 
@@ -982,16 +983,16 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       mtx_buffer.unlock();
       sig_buffer.notify_all();
 
-      *(meas.pcl_proc_cur) = *(meas.pcl_proc_next);
-      PointCloudXYZI().swap(*meas.pcl_proc_next);
+      *(meas.pcl_proc_cur) = *(meas.pcl_proc_next); //현재에 미래거 넣기
+      PointCloudXYZI().swap(*meas.pcl_proc_next); //미래거 초기화
 
       int lid_frame_num = lid_raw_data_buffer.size();
-      int max_size = meas.pcl_proc_cur->size() + 24000 * lid_frame_num;
+      int max_size = meas.pcl_proc_cur->size() + 240000 * lid_frame_num; //max사이즈 제한 
       meas.pcl_proc_cur->reserve(max_size);
       meas.pcl_proc_next->reserve(max_size);
       // deque<PointCloudXYZI::Ptr> lidar_buffer_tmp;
 
-      while (!lid_raw_data_buffer.empty())
+      while (!lid_raw_data_buffer.empty())//img다음에 lid반영하려고 이전 lid값들은 싹다 points로 넣어주는 듯
       {
         if (lid_header_time_buffer.front() > img_capture_time) break;
         auto pcl(lid_raw_data_buffer.front()->points);

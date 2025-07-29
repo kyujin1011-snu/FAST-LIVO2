@@ -548,7 +548,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
               // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
               // sub_map_ray_fov.push_back(pt);
 
-              voxel_in_fov = true;
+              voxel_in_fov = true;  //90도 제한
               int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
               grid_num[index] = TYPE_MAP;
               Vector3d obs_vec(new_frame_->pos() - pt->pos_);
