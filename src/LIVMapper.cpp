@@ -987,7 +987,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       PointCloudXYZI().swap(*meas.pcl_proc_next); //미래거 초기화
 
       int lid_frame_num = lid_raw_data_buffer.size();
-      int max_size = meas.pcl_proc_cur->size() + 240000 * lid_frame_num; //max사이즈 제한 
+      int max_size = meas.pcl_proc_cur->size() + 24000 * lid_frame_num; //max사이즈 제한 
       meas.pcl_proc_cur->reserve(max_size);
       meas.pcl_proc_next->reserve(max_size);
       // deque<PointCloudXYZI::Ptr> lidar_buffer_tmp;
