@@ -546,7 +546,7 @@ void LIVMapper::run()
 
     stateEstimationAndMapping();
 
-    save_path_to_file()
+    save_path_to_file();
   }
   savePCD();
 }
