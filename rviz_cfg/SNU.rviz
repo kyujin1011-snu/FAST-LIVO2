@@ -538,7 +538,7 @@ Visualization Manager:
       Value: true
   Enabled: true
   Global Options:
-    Background Color: 0; 0; 0  #이값도 막 수정됨.
+    Background Color: 236; 236; 236  #이값도 막 수정됨.
     Default Light: true
     Fixed Frame: camera_init
     Frame Rate: 60
