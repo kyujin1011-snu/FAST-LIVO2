@@ -1139,7 +1139,7 @@ void LIVMapper::publish_frame_world(const ros::Publisher &pubLaserCloudFullRes, 
         pointRGB.z = pcl_wait_pub->points[i].z;
 
         V3D p_w(pcl_wait_pub->points[i].x, pcl_wait_pub->points[i].y, pcl_wait_pub->points[i].z);
-        V3D pf(vio_manager->new_frame_->w2f(p_w)); if (pf[2] < 0) continue;
+        V3D pf(vio_manager->new_frame_->w2f(p_w)); if (pf[2] < 0) continue;  //z축 아래 잘 못잡음
         V2D pc(vio_manager->new_frame_->w2c(p_w));
 
         if (vio_manager->new_frame_->cam_->isInFrame(pc.cast<int>(), 3)) // 100

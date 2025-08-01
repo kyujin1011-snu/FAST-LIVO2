@@ -54,7 +54,7 @@ void VIOManager::initializeVIO()
   height = cam->height();
 
   printf("width: %d, height: %d, scale: %f\n", width, height, image_resize_factor);
-  Rci = Rcl * Rli;
+  Rci = Rcl * Rli;         //camera to imu
   Pci = Rcl * Pli + Pcl;
 
   V3D Pic;
