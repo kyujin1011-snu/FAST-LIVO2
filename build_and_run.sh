@@ -2,4 +2,5 @@
 
 cd ~/catkin_ws
 catkin_make -DCMAKE_BUILD_TYPE=Release
-./launch.sh
+source devel/setup.bash
+roslaunch fast_livo mapping_snu.launch

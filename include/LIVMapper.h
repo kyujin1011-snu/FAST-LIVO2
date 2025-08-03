@@ -47,6 +47,8 @@ public:
   std::vector<std::deque<cv::Mat>> m_img_buffers;
   std::vector<std::deque<double>> m_img_time_buffers;
 
+  int pub_num = 1;
+
   // 콜백 함수는 카메라 인덱스를 인자로 받음
   void img_cbk(const sensor_msgs::ImageConstPtr &msg_in, int cam_idx);
 
@@ -59,6 +61,8 @@ public:
   double time_window_ = 0.1;
   std::vector<M3D> m_R_c_l_vec;
   std::vector<V3D> m_P_c_l_vec;
+  vector<double> extrinT_il;
+  vector<double> extrinR_il;
 
   V3D extT;
   M3D extR;
@@ -95,7 +99,8 @@ public:
 
   void publish_img_rgb(const image_transport::Publisher &pubImage,
                        VIOManagerPtr vio_manager);
-  void publish_frame_world(const ros::Publisher &pubLaserCloudFullRes,
+  void publish_frame_world(bool publish_frame,
+                           const ros::Publisher &pubLaserCloudFullRes,
                            VIOManagerPtr vio_manager);
   void publish_visual_sub_map(const ros::Publisher &pubSubVisualMap);
   void publish_effect_world(const ros::Publisher &pubLaserCloudEffect,
@@ -174,10 +179,6 @@ public:
   deque<double> lid_header_time_buffer;
   deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
   vector<pointWithVar> _pv_list;
-  vector<double> extrinT;
-  vector<double> extrinR;
-  vector<double> cameraextrinT;
-  vector<double> cameraextrinR;
   double IMG_POINT_COV;
 
   PointCloudXYZI::Ptr visual_sub_map;

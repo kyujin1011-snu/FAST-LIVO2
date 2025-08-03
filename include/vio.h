@@ -86,20 +86,14 @@ public:
   std::vector<V3D> m_P_c_l_vec;
   M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;
   V3D Pli, Pci, Pcl, Pcw;
-  void setCameraByIndex(int index);
+  int cam_idx;
+
+  void setCameraByIndex(int index, cv::Mat &img);
   void setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P);
   void setExtrinsicParameters(const M3D &R_li, const V3D &P_li,
                               const std::vector<M3D> &R_cl_vec,
                               const std::vector<V3D> &P_cl_vec,
                               const std::vector<vk::AbstractCamera *> &cameras);
-
-  void processSingleFrame(
-      cv::Mat &img, int cam_idx, vector<pointWithVar> &pg,
-      const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map);
-  void updateMapAfterVIO(
-      const std::vector<cv::Mat> &imgs, vector<pointWithVar> &pg,
-      const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map,
-      double img_time);
 
   int grid_size;
   vk::AbstractCamera *cam;
@@ -155,7 +149,7 @@ public:
   void updateStateInverse(cv::Mat img, int level);
   void updateState(cv::Mat img, int level);
   void
-  processFrame(cv::Mat &img, vector<pointWithVar> &pg,
+  processFrame(vector<pointWithVar> &pg,
                const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map,
                double img_time);
 

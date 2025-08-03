@@ -16,7 +16,7 @@ common:
 extrin_calib:
   # LiDAR to IMU Extrinsics (T_li)
   extrinsic_T: [-0.001, -0.00855, 0.055] 
-  extrinsic_R: [0, -1, 0, -1, 0, 0, 0, 0, -1]
+  extrinsic_R: [1, 0, 0, 0, 1, 0, 0, 0, 1]
   
   # --- Camera to LiDAR Extrinsics (T_cl) ---
   # 각 카메라별로 R_cl과 P_cl을 정의합니다.

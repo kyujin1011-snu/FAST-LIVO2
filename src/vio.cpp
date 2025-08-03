@@ -27,20 +27,19 @@ VIOManager::~VIOManager() {
   feat_map.clear();
 }
 
-void VIOManager::setCameraByIndex(int index) {
+void VIOManager::setCameraByIndex(int index, cv::Mat &img) {
   if (index < 0 || index >= m_cameras.size()) {
     ROS_ERROR("VIOManager: Invalid camera index provided: %d", index);
     return;
   }
-
-  // 현재 사용할 카메라의 intrinsic과 extrinsic(T_ci)으로 내부 변수들을 설정
+  this->img_rgb = img.clone();
+  this->img_cp = img.clone();
   this->cam = m_cameras[index];
   this->Rci = m_R_c_i_vec[index];
   this->Pci = m_P_c_i_vec[index];
-
-  // 현재 카메라에 맞춰 LiDAR-Camera extrinsic(T_cl)도 함께 설정
   this->Rcl = m_R_c_l_vec[index];
   this->Pcl = m_P_c_l_vec[index];
+  this->cam_idx = index;
 }
 
 void VIOManager::setExtrinsicParameters(
@@ -73,122 +72,6 @@ void VIOManager::setExtrinsicParameters(
 
   ROS_INFO("VIOManager: All extrinsic parameters have been initialized and "
            "T_ci calculated.");
-}
-
-void VIOManager::processSingleFrame(
-    cv::Mat &img, int cam_idx, vector<pointWithVar> &pg,
-    const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map) {
-
-  if (width != img.cols || height != img.rows) {
-    if (img.empty())
-      printf("[ VIO ] Empty Image!\n");
-    cv::resize(img, img,
-               cv::Size(img.cols * image_resize_factor,
-                        img.rows * image_resize_factor),
-               0, 0, CV_INTER_LINEAR);
-  }
-  img_rgb = img.clone();
-  img_cp = img.clone();
-  // img_test = img.clone();
-
-  if (img.channels() == 3)
-    cv::cvtColor(img, img, CV_BGR2GRAY);
-
-  new_frame_.reset(new Frame(m_cameras[cam_idx], img));
-
-  // LIO 업데이트가 완료된 최신 state로 Frame의 Pose를 동기화합니다.
-  updateFrameState(*state);
-
-  // 1. 그리드 리셋: 각 카메라의 이미지-포인트 관계를 새로 계산하기 위해
-  // 그리드를 초기화합니다.
-  resetGrid();
-
-  // 2. 맵 포인트 검색: 현재 카메라의 Pose와 FoV를 기준으로 볼 수 있는 시각 지도
-  // 포인트를 맵에서 가져옵니다.
-  retrieveFromVisualSparseMap(img, pg, feat_map);
-
-  // 3. EKF 업데이트: 검색된 포인트와 현재 이미지를 이용해 광도 오차를 계산하고,
-  //    이를 기반으로 EKF의 상태(_state)를 업데이트합니다.
-  computeJacobianAndUpdateEKF(img);
-}
-
-// In VIOManager.cpp
-
-void VIOManager::updateMapAfterVIO(
-    const std::vector<cv::Mat> &imgs, vector<pointWithVar> &pg,
-    const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map,
-    double img_time) {
-  // 맵 업데이트 및 시각화는 대표 카메라(예: 0번)를 기준으로 수행합니다.
-  // 필요에 따라 모든 카메라의 이미지를 순회하며 포인트를 생성/업데이트할 수도
-  // 있습니다.
-  int representative_cam_idx = 0;
-  setCameraByIndex(representative_cam_idx);
-
-  // 대표 이미지 준비
-  cv::Mat representative_img_gray;
-  const cv::Mat &representative_img_color = imgs[representative_cam_idx];
-
-  if (representative_img_color.channels() == 3) {
-    cv::cvtColor(representative_img_color, representative_img_gray,
-                 CV_BGR2GRAY);
-    img_rgb = representative_img_color.clone(); // 시각화용 RGB 이미지 저장
-  } else {
-    representative_img_gray = representative_img_color.clone();
-    cv::cvtColor(representative_img_gray, img_rgb,
-                 CV_GRAY2BGR); // 회색조를 BGR로 변환하여 저장
-  }
-
-  // --- 맵 업데이트 작업 ---
-  double t_start = omp_get_wtime();
-
-  generateVisualMapPoints(representative_img_gray, pg);
-  double t_gen = omp_get_wtime();
-
-  updateVisualMapPoints(representative_img_gray);
-  double t_update_pts = omp_get_wtime();
-
-  updateReferencePatch(feat_map);
-  double t_update_patch = omp_get_wtime();
-
-  // --- 시각화 및 기타 후처리 ---
-  plotTrackedPoints();
-  if (plot_flag)
-    projectPatchFromRefToCur(feat_map);
-  if (colmap_output_en)
-    dumpDataForColmap();
-
-  double t_end = omp_get_wtime();
-
-  // --- 성능 로깅 ---
-  frame_count++;
-  double total_time = (t_gen - t_start) + (t_update_pts - t_gen) +
-                      (t_update_patch - t_update_pts); // EKF 시간 제외
-  ave_total =
-      ave_total * (frame_count - 1) / frame_count + total_time / frame_count;
-
-  printf("\033[1;34m+----------------------------------------------------------"
-         "---+\033[0m\n");
-  printf("\033[1;34m|                     VIO Map Update Time                  "
-         "   |\033[0m\n");
-  printf("\033[1;34m+----------------------------------------------------------"
-         "---+\033[0m\n");
-  printf("\033[1;34m| %-29s | %-27s |\033[0m\n", "Stage", "Time (secs)");
-  printf("\033[1;34m+----------------------------------------------------------"
-         "---+\033[0m\n");
-  printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "generateVisualMapPoints",
-         t_gen - t_start);
-  printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "updateVisualMapPoints",
-         t_update_pts - t_gen);
-  printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "updateReferencePatch",
-         t_update_patch - t_update_pts);
-  printf("\033[1;34m+----------------------------------------------------------"
-         "---+\033[0m\n");
-  printf("\033[1;32m| %-29s | %-27lf |\033[0m\n",
-         "Current Total Map Update Time", total_time);
-  printf("\033[1;32m| %-29s | %-27lf |\033[0m\n", "Average Total Time",
-         ave_total);
-  printf("\033[1;34m+----------------------------------------------------------"
-         "---+\033[0m\n");
 }
 
 // void VIOManager::setImuToLidarExtrinsic(const V3D &transl, const M3D &rot)
@@ -633,8 +516,10 @@ void VIOManager::retrieveFromVisualSparseMap(
 
         V3D norm_vec(new_frame_->T_f_w_.rotation_matrix() * pt->normal_);
         V3D dir(new_frame_->T_f_w_ * pt->pos_);
+        // TODO
         if (dir[2] < 0)
           continue;
+
         // dir.normalize();
         // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80
         // degree 0.08 85 degree
@@ -717,6 +602,8 @@ void VIOManager::retrieveFromVisualSparseMap(
 
             V3D norm_vec(new_frame_->T_f_w_.rotation_matrix() * pt->normal_);
             V3D dir(new_frame_->T_f_w_ * pt->pos_);
+
+            // TODO
             if (dir[2] < 0)
               continue;
             dir.normalize();
@@ -955,7 +842,9 @@ void VIOManager::retrieveFromVisualSparseMap(
   // cout<<"C. addSubSparseMap: "<<t3-t2<<endl;
   // cout<<"depthcontinuous: C1 "<<t_2<<" C2 "<<t_3<<" C3 "<<t_4<<" C4
   // "<<t_5<<endl;
-  printf("[ VIO ] Retrieve %d points from visual sparse map\n", total_points);
+
+  // printf("[ VIO ] Retrieve %d points from visual sparse map\n",
+  // total_points);
 }
 
 void VIOManager::computeJacobianAndUpdateEKF(cv::Mat img) {
@@ -1964,6 +1853,9 @@ void VIOManager::updateFrameState(StatesGroup state) {
 
 void VIOManager::plotTrackedPoints() {
   int total_points = visual_submap->voxel_points.size();
+
+  // std::cout << "[plot_Track]: " << total_points << std::endl;
+
   if (total_points == 0)
     return;
   // int inlier_count = 0;
@@ -1987,6 +1879,7 @@ void VIOManager::plotTrackedPoints() {
   //   cv::line(img_cp, cv::Point2f(grid_size * i, 0), cv::Point2f(grid_size *
   //   i, img_cp.rows), cv::Scalar(255, 255, 255), 1, CV_AA);
   // }
+
   for (int i = 0; i < total_points; i++) {
     VisualPoint *pt = visual_submap->voxel_points[i];
     V2D pc(new_frame_->w2c(pt->pos_));
@@ -2056,9 +1949,12 @@ void VIOManager::dumpDataForColmap() {
 }
 
 void VIOManager::processFrame(
-    cv::Mat &img, vector<pointWithVar> &pg,
+    vector<pointWithVar> &pg,
     const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map,
     double img_time) {
+
+  cv::Mat img = img_cp.clone();
+
   if (width != img.cols || height != img.rows) {
     if (img.empty())
       printf("[ VIO ] Empty Image!\n");
@@ -2067,14 +1963,13 @@ void VIOManager::processFrame(
                         img.rows * image_resize_factor),
                0, 0, CV_INTER_LINEAR);
   }
-  img_rgb = img.clone();
-  img_cp = img.clone();
   // img_test = img.clone();
 
   if (img.channels() == 3)
     cv::cvtColor(img, img, CV_BGR2GRAY);
 
   new_frame_.reset(new Frame(cam, img));
+
   updateFrameState(*state);
 
   resetGrid();

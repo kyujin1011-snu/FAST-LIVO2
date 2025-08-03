@@ -16,10 +16,8 @@ which is included as part of this source code package.
 
 LIVMapper::LIVMapper(ros::NodeHandle &nh)
     : extT(0, 0, 0), extR(M3D::Identity()) {
-  extrinT.assign(3, 0.0);
-  extrinR.assign(9, 0.0);
-  cameraextrinT.assign(3, 0.0);
-  cameraextrinR.assign(9, 0.0);
+  extrinT_il.assign(3, 0.0);
+  extrinR_il.assign(9, 0.0);
 
   p_pre.reset(new Preprocess());
   p_imu.reset(new ImuProcess());
@@ -62,11 +60,16 @@ void LIVMapper::readParameters(ros::NodeHandle &nh) {
       img_topics.push_back(single_topic);
   }
 
-  std::vector<double> extrinT_li, extrinR_li;
-  nh.getParam("extrin_calib/extrinsic_T", extrinT_li);
-  nh.getParam("extrin_calib/extrinsic_R", extrinR_li);
-  extT << VEC_FROM_ARRAY(extrinT_li);
-  extR << MAT_FROM_ARRAY(extrinR_li);
+  nh.getParam("extrin_calib/extrinsic_T", extrinT_il);
+  nh.getParam("extrin_calib/extrinsic_R", extrinR_il);
+
+  // nh.param<vector<double>>("extrin_calib/extrinsic_T", extrinT,
+  //   vector<double>());
+  // nh.param<vector<double>>("extrin_calib/extrinsic_R", extrinR,
+  //     vector<double>());
+  // nh.param<vector<double>>("extrin_calib/Pcl", cameraextrinT,
+  // vector<double>()); nh.param<vector<double>>("extrin_calib/Rcl",
+  // cameraextrinR, vector<double>());
 
   m_R_c_l_vec.resize(num_of_cam);
   m_P_c_l_vec.resize(num_of_cam);
@@ -128,12 +131,6 @@ void LIVMapper::readParameters(ros::NodeHandle &nh) {
   nh.param<bool>("pcd_save/pcd_save_en", pcd_save_en, false);
   nh.param<bool>("pcd_save/colmap_output_en", colmap_output_en, false);
   nh.param<double>("pcd_save/filter_size_pcd", filter_size_pcd, 0.5);
-  nh.param<vector<double>>("extrin_calib/extrinsic_T", extrinT,
-                           vector<double>());
-  nh.param<vector<double>>("extrin_calib/extrinsic_R", extrinR,
-                           vector<double>());
-  nh.param<vector<double>>("extrin_calib/Pcl", cameraextrinT, vector<double>());
-  nh.param<vector<double>>("extrin_calib/Rcl", cameraextrinR, vector<double>());
   nh.param<double>("debug/plot_time", plot_time, -10);
   nh.param<int>("debug/frame_cnt", frame_cnt, 6);
 
@@ -148,11 +145,11 @@ void LIVMapper::readParameters(ros::NodeHandle &nh) {
 void LIVMapper::initializeComponents() {
   downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min,
                                  filter_size_surf_min);
-  extT << VEC_FROM_ARRAY(extrinT);
-  extR << MAT_FROM_ARRAY(extrinR);
+  extT << VEC_FROM_ARRAY(extrinT_il);
+  extR << MAT_FROM_ARRAY(extrinR_il);
 
-  voxelmap_manager->extT_ << VEC_FROM_ARRAY(extrinT);
-  voxelmap_manager->extR_ << MAT_FROM_ARRAY(extrinR);
+  voxelmap_manager->extT_ << VEC_FROM_ARRAY(extrinT_il);
+  voxelmap_manager->extR_ << MAT_FROM_ARRAY(extrinR_il);
 
   vio_manager->grid_size = grid_size;
   vio_manager->patch_size = patch_size;
@@ -348,14 +345,7 @@ void LIVMapper::stateEstimationAndMapping() {
 
 void LIVMapper::handleVIO() {
   std::cout << "handleVIO" << std::endl;
-  auto &m = LidarMeasures.measures.back();
 
-  if (m.imgs.empty() || pcl_w_wait_pub->empty() ||
-      (pcl_w_wait_pub == nullptr)) {
-    return;
-  }
-
-  // --- 2. VIO 처리 전 상태 로깅 ---
   euler_cur = RotMtoEuler(_state.rot_end);
   fout_pre << std::setw(20)
            << LidarMeasures.last_lio_update_time - _first_lidar_time << " "
@@ -364,9 +354,33 @@ void LIVMapper::handleVIO() {
            << _state.bias_g.transpose() << " " << _state.bias_a.transpose()
            << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
 
+  auto &m = LidarMeasures.measures.back();
+
+  if (m.imgs.empty() || pcl_w_wait_pub->empty() ||
+      (pcl_w_wait_pub == nullptr)) {
+    return;
+  }
+
+  if (fabs((LidarMeasures.last_lio_update_time - _first_lidar_time) -
+           plot_time) < (frame_cnt / 2 * 0.1)) {
+    vio_manager->plot_flag = true;
+  } else {
+    vio_manager->plot_flag = false;
+  }
+
   // --- 3. VIO 처리 단계별 호출 ---
 
   // 3.2 각 카메라에 대한 순차적 EKF 업데이트
+
+  *pcl_wait_pub += *pcl_w_wait_pub;
+  bool publish_frame = false;
+  if (pub_num == pub_scan_num) {
+    pub_num = 1;
+    publish_frame = true;
+  } else {
+    pub_num++;
+  }
+
   for (size_t i = 0; i < m.imgs.size(); ++i) {
     cv::Mat &current_img = m.imgs[i];
     int cam_idx = m.img_camera_indices[i];
@@ -375,19 +389,20 @@ void LIVMapper::handleVIO() {
               << std::endl;
 
     // VIOManager가 해당 카메라의 파라미터를 사용하도록 설정
-    vio_manager->setCameraByIndex(cam_idx);
+    vio_manager->setCameraByIndex(cam_idx, current_img);
 
-    // 해당 카메라의 이미지로 VIO 처리 및 EKF 업데이트 수행
-    vio_manager->processSingleFrame(current_img, cam_idx, _pv_list,
-                                    voxelmap_manager->voxel_map_);
+    vio_manager->processFrame(_pv_list, voxelmap_manager->voxel_map_,
+                              LidarMeasures.last_lio_update_time -
+                                  _first_lidar_time);
 
     publish_img_rgb(pubImages[cam_idx], vio_manager);
-  }
 
-  // 3.3 모든 EKF 업데이트 후 맵 업데이트 (한 번만 실행)
-  vio_manager->updateMapAfterVIO(m.imgs, _pv_list, voxelmap_manager->voxel_map_,
-                                 LidarMeasures.last_lio_update_time -
-                                     _first_lidar_time);
+    publish_frame_world(publish_frame, pubLaserCloudFullRes, vio_manager);
+  }
+  if (publish_frame) {
+    PointCloudXYZI().swap(*pcl_wait_pub);
+  }
+  PointCloudXYZI().swap(*pcl_w_wait_pub);
 
   if (imu_prop_enable) { // EKF 상태는 LIO 결과로 갱신
     ekf_finish_once = true;
@@ -395,8 +410,6 @@ void LIVMapper::handleVIO() {
     latest_ekf_time = LidarMeasures.last_lio_update_time;
     state_update_flg = true;
   }
-  // 결과 퍼블리싱
-  publish_frame_world(pubLaserCloudFullRes, vio_manager);
 
   // 업데이트 후 상태 로깅
   euler_cur = RotMtoEuler(_state.rot_end);
@@ -525,7 +538,7 @@ void LIVMapper::handleLIO() {
   *pcl_w_wait_pub = *laserCloudWorld;
 
   if (!img_en)
-    publish_frame_world(pubLaserCloudFullRes, vio_manager);
+    publish_frame_world(true, pubLaserCloudFullRes, vio_manager);
   if (pub_effect_point_en)
     publish_effect_world(pubLaserCloudEffect, voxelmap_manager->ptpl_list_);
   if (voxelmap_manager->config_setting_.is_pub_plane_map_)
@@ -813,7 +826,8 @@ void LIVMapper::RGBpointBodyToWorld(PointType const *const pi,
 
 void LIVMapper::standard_pcl_cbk(
     const sensor_msgs::PointCloud2::ConstPtr &msg) {
-  std::cout << "[DEBUG] standard_pcl_cbk called! timestamp: "
+  std::cout << std::fixed << std::setprecision(6)
+            << "[DEBUG] standard_pcl_cbk called! timestamp: "
             << msg->header.stamp.toSec() << std::endl;
   if (!lidar_en)
     return;
@@ -970,7 +984,8 @@ void LIVMapper::img_cbk(const sensor_msgs::ImageConstPtr &msg_in, int cam_idx) {
   double msg_header_time = msg->header.stamp.toSec() - img_time_offset;
   if (abs(msg_header_time - last_timestamp_imgs[cam_idx]) < 0.001)
     return;
-  ROS_INFO("Get image, its header time: %.6f", msg_header_time);
+  ROS_INFO("[CAM %d] Get image, its header time: %.6f", cam_idx,
+           msg_header_time);
   if (last_timestamp_lidar < 0)
     return;
 
@@ -1068,8 +1083,6 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
       double capture_time = current_img_time + exposure_time_init;
       cv::Mat image = m_img_buffers[i].front();
       candidates[i] = {capture_time, image};
-      m_img_time_buffers[i].pop_front();
-      m_img_buffers[i].pop_front();
       key_frame_times.push_back(capture_time);
     }
 
@@ -1083,8 +1096,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
 
     m_candidates = candidates;
 
-    // std::cout << "[DEBUG] candidates: " <<
-    // candidates.size() << std::endl;
+    std::cout << "candidates: " << candidates.size() << std::endl;
 
     meas.measures.clear();
 
@@ -1093,10 +1105,31 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
         lid_raw_data_buffer.back()->points.back().curvature / 1000.0;
     double imu_newest_time = imu_buffer.back()->header.stamp.toSec();
 
-    if (key_frame_time > lid_newest_time || key_frame_time > imu_newest_time ||
-        (meas.pcl_proc_next->size() == 0 &&
-         key_frame_time < lid_header_time_buffer.front())) {
+    if (key_frame_time > lid_newest_time) {
+      std::cout << std::fixed << std::setprecision(6)
+                << "[sync false] lid < key_frame: " << lid_newest_time << " < "
+                << key_frame_time << std::endl;
       return false;
+    }
+
+    if (key_frame_time > imu_newest_time) {
+      std::cout << std::fixed << std::setprecision(6)
+                << "[sync false] IMU < key_frame: " << imu_newest_time << " < "
+                << key_frame_time << std::endl;
+      return false;
+    }
+
+    if ((meas.pcl_proc_next->size() == 0 &&
+         key_frame_time < lid_header_time_buffer.front())) {
+      std::cout << "No pcl pending" << std::endl;
+      return false;
+    }
+
+    for (int i = 0; i < num_of_cam; i++) {
+      if (candidates.count(i)) {
+        m_img_time_buffers[i].pop_front();
+        m_img_buffers[i].pop_front();
+      }
     }
 
     struct MeasureGroup m;
@@ -1206,16 +1239,14 @@ void LIVMapper::publish_img_rgb(const image_transport::Publisher &pubImage,
   pubImage.publish(out_msg.toImageMsg());
 }
 
-void LIVMapper::publish_frame_world(const ros::Publisher &pubLaserCloudFullRes,
+void LIVMapper::publish_frame_world(bool publish_frame,
+                                    const ros::Publisher &pubLaserCloudFullRes,
                                     VIOManagerPtr vio_manager) {
   if (pcl_w_wait_pub->empty())
     return;
   PointCloudXYZRGB::Ptr laserCloudWorldRGB(new PointCloudXYZRGB());
   if (img_en) {
-    static int pub_num = 1;
-    *pcl_wait_pub += *pcl_w_wait_pub;
-    if (pub_num == pub_scan_num) {
-      pub_num = 1;
+    if (publish_frame) {
       size_t size = pcl_wait_pub->points.size();
       laserCloudWorldRGB->reserve(size);
       // double inv_expo = _state.inv_expo_time;
@@ -1229,8 +1260,11 @@ void LIVMapper::publish_frame_world(const ros::Publisher &pubLaserCloudFullRes,
         V3D p_w(pcl_wait_pub->points[i].x, pcl_wait_pub->points[i].y,
                 pcl_wait_pub->points[i].z);
         V3D pf(vio_manager->new_frame_->w2f(p_w));
+
+        // TODO
         if (pf[2] < 0)
           continue;
+
         V2D pc(vio_manager->new_frame_->w2c(p_w));
 
         if (vio_manager->new_frame_->cam_->isInFrame(pc.cast<int>(), 3)) // 100
@@ -1249,8 +1283,8 @@ void LIVMapper::publish_frame_world(const ros::Publisher &pubLaserCloudFullRes,
             laserCloudWorldRGB->push_back(pointRGB);
         }
       }
-    } else {
-      pub_num++;
+      std::cout << "[CLOUD_REGISTERED] cam_idx: " << vio_manager->cam_idx
+                << std::endl;
     }
   }
 
@@ -1308,9 +1342,6 @@ void LIVMapper::publish_frame_world(const ros::Publisher &pubLaserCloudFullRes,
       }
     }
   }
-  if (laserCloudWorldRGB->size() > 0)
-    PointCloudXYZI().swap(*pcl_wait_pub);
-  PointCloudXYZI().swap(*pcl_w_wait_pub);
 }
 
 void LIVMapper::publish_visual_sub_map(const ros::Publisher &pubSubVisualMap) {
@@ -1426,52 +1457,52 @@ void LIVMapper::save_path_to_file() {
                << pose_stamped.pose.orientation.w << std::endl;
     }
     tum_file.close();
-    ROS_INFO("Successfully saved TUM trajectory to %s",
-             tum_output_path.c_str());
+    // ROS_INFO("Successfully saved TUM trajectory to %s",
+    //          tum_output_path.c_str());
   }
 
-  // --- 2. Gnuplot을 이용한 2D 경로(XY-plane projected path) 이미지 저장 ---
-  std::vector<double> x_coords, y_coords;
-  for (const auto &pose_stamped : path.poses) {
-    x_coords.push_back(pose_stamped.pose.position.x);
-    y_coords.push_back(pose_stamped.pose.position.y);
-  }
+  // // --- 2. Gnuplot을 이용한 2D 경로(XY-plane projected path) 이미지 저장 ---
+  // std::vector<double> x_coords, y_coords;
+  // for (const auto &pose_stamped : path.poses) {
+  //   x_coords.push_back(pose_stamped.pose.position.x);
+  //   y_coords.push_back(pose_stamped.pose.position.y);
+  // }
 
-  // gnuplot 프로세스를 파이프로 엽니다.
-  FILE *gnuplotPipe = popen("gnuplot", "w");
-  if (gnuplotPipe) {
-    // gnuplot 명령어 전송
-    fprintf(gnuplotPipe, "set title 'Robot Trajectory'\n");
-    fprintf(gnuplotPipe,
-            "set xlabel 'X coordinate (m)'\n"); // 오타 수정: gnuploset ->
-                                                // fprintf(gnuplotPipe, "set
-    fprintf(gnuplotPipe, "set ylabel 'Y coordinate (m)'\n");
-    fprintf(gnuplotPipe, "set grid\n");
-    fprintf(gnuplotPipe, "set size ratio -1\n"); // 축 비율을 1:1로 설정
+  // // gnuplot 프로세스를 파이프로 엽니다.
+  // FILE *gnuplotPipe = popen("gnuplot", "w");
+  // if (gnuplotPipe) {
+  //   // gnuplot 명령어 전송
+  //   fprintf(gnuplotPipe, "set title 'Robot Trajectory'\n");
+  //   fprintf(gnuplotPipe,
+  //           "set xlabel 'X coordinate (m)'\n"); // 오타 수정: gnuploset ->
+  //                                               // fprintf(gnuplotPipe, "set
+  //   fprintf(gnuplotPipe, "set ylabel 'Y coordinate (m)'\n");
+  //   fprintf(gnuplotPipe, "set grid\n");
+  //   fprintf(gnuplotPipe, "set size ratio -1\n"); // 축 비율을 1:1로 설정
 
-    // PNG 파일로 출력 설정 (프로젝트 Log 폴더에 저장)
-    std::string png_output_path =
-        std::string(ROOT_DIR) + "/Log/final_trajectory_gnuplot.png";
-    fprintf(gnuplotPipe, "set terminal pngcairo size 800,800\n");
-    fprintf(gnuplotPipe, "set output '%s'\n", png_output_path.c_str());
+  //   // PNG 파일로 출력 설정 (프로젝트 Log 폴더에 저장)
+  //   std::string png_output_path =
+  //       std::string(ROOT_DIR) + "/Log/final_trajectory_gnuplot.png";
+  //   fprintf(gnuplotPipe, "set terminal pngcairo size 800,800\n");
+  //   fprintf(gnuplotPipe, "set output '%s'\n", png_output_path.c_str());
 
-    // 데이터와 함께 플롯 명령어 전송. '-'는 표준 입력을 의미합니다.
-    fprintf(gnuplotPipe, "plot '-' with lines title 'Path'\n");
+  //   // 데이터와 함께 플롯 명령어 전송. '-'는 표준 입력을 의미합니다.
+  //   fprintf(gnuplotPipe, "plot '-' with lines title 'Path'\n");
 
-    // 데이터 포인트를 gnuplot에 전송
-    for (size_t i = 0; i < x_coords.size(); ++i) {
-      fprintf(gnuplotPipe, "%f %f\n", x_coords[i], y_coords[i]);
-    }
+  //   // 데이터 포인트를 gnuplot에 전송
+  //   for (size_t i = 0; i < x_coords.size(); ++i) {
+  //     fprintf(gnuplotPipe, "%f %f\n", x_coords[i], y_coords[i]);
+  //   }
 
-    // 데이터 전송 끝을 알리는 'e' (end of data)
-    fprintf(gnuplotPipe, "e\n");
+  //   // 데이터 전송 끝을 알리는 'e' (end of data)
+  //   fprintf(gnuplotPipe, "e\n");
 
-    // 버퍼를 비우고 파이프를 닫아 파일 저장을 완료합니다.
-    fflush(gnuplotPipe);
-    pclose(gnuplotPipe);
+  //   // 버퍼를 비우고 파이프를 닫아 파일 저장을 완료합니다.
+  //   fflush(gnuplotPipe);
+  //   pclose(gnuplotPipe);
 
-    ROS_INFO("Successfully saved plot to %s", png_output_path.c_str());
-  } else {
-    ROS_ERROR("Could not open gnuplot pipe. Is gnuplot installed?");
-  }
+  //   // ROS_INFO("Successfully saved plot to %s", png_output_path.c_str());
+  // } else {
+  //   ROS_ERROR("Could not open gnuplot pipe. Is gnuplot installed?");
+  // }
 }
