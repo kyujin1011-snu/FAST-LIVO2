@@ -81,6 +81,8 @@ void LIVMapper::readParameters(ros::NodeHandle &nh) {
     m_P_c_l_vec[i] << VEC_FROM_ARRAY(P_cl_vec);
   }
 
+  nh.param<bool>("common/show_imu_path", show_imu_path, false);
+  nh.param<int>("common/run_rate", run_rate, 5000);
   nh.param<string>("common/lid_topic", lid_topic, "/livox/lidar");
   nh.param<string>("common/imu_topic", imu_topic, "/livox/imu");
   nh.param<bool>("common/ros_driver_bug_fix", ros_driver_fix_en, false);
@@ -248,6 +250,8 @@ void LIVMapper::initializeSubscribersAndPublishers(
     ROS_INFO("Subscribing to image topic [%d]: %s", i, img_topics[i].c_str());
   }
 
+  pubImuPredictedOdom =
+      nh.advertise<nav_msgs::Odometry>("/imu_predicted_odometry", 100);
   pubLaserCloudFullRes =
       nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered", 100);
   pubNormal = nh.advertise<visualization_msgs::MarkerArray>(
@@ -290,17 +294,17 @@ void LIVMapper::handleFirstFrame() {
   }
 }
 
-void LIVMapper::gravityAlignment() {
+void LIVMapper::gravityAlignment(StatesGroup &stat) {
   if (!p_imu->imu_need_init && !gravity_align_finished) {
     std::cout << "Gravity Alignment Starts" << std::endl;
-    V3D ez(0, 0, -1), gz(_state.gravity);
+    V3D ez(0, 0, -1), gz(stat.gravity);
     Quaterniond G_q_I0 = Quaterniond::FromTwoVectors(gz, ez);
     M3D G_R_I0 = G_q_I0.toRotationMatrix();
 
-    _state.pos_end = G_R_I0 * _state.pos_end;
-    _state.rot_end = G_R_I0 * _state.rot_end;
-    _state.vel_end = G_R_I0 * _state.vel_end;
-    _state.gravity = G_R_I0 * _state.gravity;
+    stat.pos_end = G_R_I0 * stat.pos_end;
+    stat.rot_end = G_R_I0 * stat.rot_end;
+    stat.vel_end = G_R_I0 * stat.vel_end;
+    stat.gravity = G_R_I0 * stat.gravity;
     gravity_align_finished = true;
     std::cout << "Gravity Alignment Finished" << std::endl;
   }
@@ -310,16 +314,18 @@ void LIVMapper::processImu() {
   // double t0 = omp_get_wtime();
   std::cout << "processImu" << std::endl;
 
-  p_imu->Process2(LidarMeasures, _state, feats_undistort);
+  p_imu->Process2(LidarMeasures, _state, last_IMU_state, feats_undistort);
 
-  if (gravity_align_en)
-    gravityAlignment();
+  if (gravity_align_en) {
+    gravityAlignment(_state);
+    gravityAlignment(last_IMU_state);
+  }
 
   state_propagat = _state;
   voxelmap_manager->state_ = _state;
   voxelmap_manager->feats_undistort_ = feats_undistort;
 
-  // double t_prop = omp_get_wtime();
+  publish_odometry(pubImuPredictedOdom, last_IMU_state);
 
   // std::cout << "[ Mapping ] feats_undistort: " << feats_undistort->size() <<
   // std::endl; std::cout << "[ Mapping ] predict cov: " <<
@@ -499,7 +505,7 @@ void LIVMapper::handleLIO() {
   euler_cur = RotMtoEuler(_state.rot_end);
   geoQuat = tf::createQuaternionMsgFromRollPitchYaw(euler_cur(0), euler_cur(1),
                                                     euler_cur(2));
-  publish_odometry(pubOdomAftMapped);
+  publish_odometry(pubOdomAftMapped, _state);
 
   double t3 = omp_get_wtime();
 
@@ -656,7 +662,7 @@ void LIVMapper::savePCD() {
 
 void LIVMapper::run() {
   std::cout << "run start " << std::endl;
-  ros::Rate rate(5000);
+  ros::Rate rate(run_rate);
   while (ros::ok()) {
     ros::spinOnce();
     if (!sync_packages(LidarMeasures)) {
@@ -1063,6 +1069,41 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
     double key_frame_time;
     vector<double> key_frame_times;
 
+    // [DEBUG]
+    const char block = '#';
+    const double time_unit = 0.01; // 0.01초 = 공백 1칸
+
+    // 1. 각 buffer의 front() 가져오기
+    vector<double> fronts;
+    for (const auto &buf : m_img_time_buffers) {
+      if (!buf.empty()) {
+        fronts.push_back(buf.front());
+      } else {
+        fronts.push_back(numeric_limits<double>::max());
+      }
+    }
+
+    // 2. 최소 timestamp 구하기
+    double min_time = *min_element(fronts.begin(), fronts.end());
+
+    // 3. 시각화 출력
+    for (size_t i = 0; i < m_img_time_buffers.size(); ++i) {
+      size_t size = m_img_time_buffers[i].size();
+      if (size == 0) {
+        cout << "Buffer " << i << ": (empty)" << endl;
+        continue;
+      }
+
+      double offset = fronts[i] - min_time;
+      int spaces = static_cast<int>(round(offset / time_unit));
+
+      cout << "Buffer " << i << ": ";
+      cout << string(spaces, ' ');
+      cout << string(size, block);
+      cout << " (" << size << ", offset: " << fixed << setprecision(6) << offset
+           << "s)" << endl;
+    }
+
     for (int i = 0; i < num_of_cam; i++) {
 
       if (m_img_time_buffers[i].empty()) {
@@ -1119,17 +1160,17 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
       return false;
     }
 
-    if ((meas.pcl_proc_next->size() == 0 &&
-         key_frame_time < lid_header_time_buffer.front())) {
-      std::cout << "No pcl pending" << std::endl;
-      return false;
-    }
-
     for (int i = 0; i < num_of_cam; i++) {
       if (candidates.count(i)) {
         m_img_time_buffers[i].pop_front();
         m_img_buffers[i].pop_front();
       }
+    }
+
+    if ((meas.pcl_proc_next->size() == 0 &&
+         key_frame_time < lid_header_time_buffer.front())) {
+      std::cout << "No pcl pending" << std::endl;
+      return false;
     }
 
     struct MeasureGroup m;
@@ -1198,7 +1239,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas) {
     m.vio_time = meas.last_lio_update_time;
     m.vio_time = meas.last_lio_update_time;
 
-    std::cout << "candid num: " << m_candidates.size() << std::endl;
+    // std::cout << "candid num: " << m_candidates.size() << std::endl;
 
     for (auto const &[cam_idx, val] : m_candidates) {
       m.imgs.push_back(val.second); // cv::Mat
@@ -1378,16 +1419,25 @@ void LIVMapper::publish_effect_world(
 }
 
 template <typename T> void LIVMapper::set_posestamp(T &out) {
-  out.position.x = _state.pos_end(0);
-  out.position.y = _state.pos_end(1);
-  out.position.z = _state.pos_end(2);
-  out.orientation.x = geoQuat.x;
-  out.orientation.y = geoQuat.y;
-  out.orientation.z = geoQuat.z;
-  out.orientation.w = geoQuat.w;
+  const auto &state = show_imu_path ? last_IMU_state : _state;
+  // const auto &state = _state;
+
+  out.position.x = state.pos_end(0);
+  out.position.y = state.pos_end(1);
+  out.position.z = state.pos_end(2);
+
+  auto temp_euler_cur = RotMtoEuler(state.rot_end);
+  auto temp_geoQuat = tf::createQuaternionMsgFromRollPitchYaw(
+      temp_euler_cur(0), temp_euler_cur(1), temp_euler_cur(2));
+  out.orientation.x = temp_geoQuat.x;
+  out.orientation.y = temp_geoQuat.y;
+  out.orientation.z = temp_geoQuat.z;
+  out.orientation.w = temp_geoQuat.w;
 }
 
-void LIVMapper::publish_odometry(const ros::Publisher &pubOdomAftMapped) {
+void LIVMapper::publish_odometry(const ros::Publisher &pubOdomAftMapped,
+                                 StatesGroup &state) {
+
   odomAftMapped.header.frame_id = "camera_init";
   odomAftMapped.child_frame_id = "aft_mapped";
   odomAftMapped.header.stamp =
@@ -1398,14 +1448,19 @@ void LIVMapper::publish_odometry(const ros::Publisher &pubOdomAftMapped) {
   tf::Transform transform;
   tf::Quaternion q;
   transform.setOrigin(
-      tf::Vector3(_state.pos_end(0), _state.pos_end(1), _state.pos_end(2)));
-  q.setW(geoQuat.w);
-  q.setX(geoQuat.x);
-  q.setY(geoQuat.y);
-  q.setZ(geoQuat.z);
+      tf::Vector3(state.pos_end(0), state.pos_end(1), state.pos_end(2)));
+
+  auto temp_euler_cur = RotMtoEuler(state.rot_end);
+  auto temp_geoQuat = tf::createQuaternionMsgFromRollPitchYaw(
+      temp_euler_cur(0), temp_euler_cur(1), temp_euler_cur(2));
+  q.setW(temp_geoQuat.w);
+  q.setX(temp_geoQuat.x);
+  q.setY(temp_geoQuat.y);
+  q.setZ(temp_geoQuat.z);
   transform.setRotation(q);
   br.sendTransform(tf::StampedTransform(transform, odomAftMapped.header.stamp,
                                         "camera_init", "aft_mapped"));
+
   pubOdomAftMapped.publish(odomAftMapped);
 }
 

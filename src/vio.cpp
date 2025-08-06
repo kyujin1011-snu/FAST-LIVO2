@@ -416,7 +416,7 @@ void VIOManager::retrieveFromVisualSparseMap(
   visual_submap->reset();
 
   // Controls whether to include the visual submap from the previous frame.
-  sub_feat_map.clear();
+  // sub_feat_map.clear();
 
   float voxel_size = 0.5;
 

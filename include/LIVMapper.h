@@ -47,6 +47,8 @@ public:
   std::vector<std::deque<cv::Mat>> m_img_buffers;
   std::vector<std::deque<double>> m_img_time_buffers;
 
+  bool show_imu_path = false;
+
   int pub_num = 1;
 
   // 콜백 함수는 카메라 인덱스를 인자로 받음
@@ -69,12 +71,15 @@ public:
 
   std::vector<double> last_timestamp_imgs;
 
+  ros::Publisher pubImuPredictedOdom;
+  int run_rate;
+
   LIVMapper(ros::NodeHandle &nh);
   ~LIVMapper();
   void initializeComponents();
   void initializeFiles();
   void run();
-  void gravityAlignment();
+  void gravityAlignment(StatesGroup &stat);
   void handleFirstFrame();
   void stateEstimationAndMapping();
   void handleVIO();
@@ -105,7 +110,8 @@ public:
   void publish_visual_sub_map(const ros::Publisher &pubSubVisualMap);
   void publish_effect_world(const ros::Publisher &pubLaserCloudEffect,
                             const std::vector<PointToPlane> &ptpl_list);
-  void publish_odometry(const ros::Publisher &pubOdomAftMapped);
+  void publish_odometry(const ros::Publisher &pubOdomAftMapped,
+                        StatesGroup &state);
   void publish_mavros(const ros::Publisher &mavros_pose_publisher);
   void publish_path(const ros::Publisher pubPath);
   template <typename T> void set_posestamp(T &out);
@@ -198,6 +204,7 @@ public:
 
   LidarMeasureGroup LidarMeasures;
   StatesGroup _state;
+  StatesGroup last_IMU_state;
   StatesGroup state_propagat;
 
   nav_msgs::Path path;

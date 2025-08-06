@@ -7,11 +7,13 @@ common:
     - "/alphasense/cam3/image_raw" # 왼쪽 (Left)
   lid_topic: "/hesai/pandar"
   imu_topic: "/alphasense/imu"
-  num_of_cam: 4 # 카메라 개수 명시
   img_en: 1
   lidar_en: 1
   ros_driver_bug_fix: false
-  sync_time_window: 0.075
+  sync_time_window: 0.05
+  num_of_cam: 4
+  run_rate: 100
+  show_imu_path: false
 
 extrin_calib:
   # LiDAR to IMU Extrinsics (T_li)
@@ -67,10 +69,12 @@ vio:
   patch_size: 8
   patch_pyrimid_level: 4
   normal_en: true
-  raycast_en: false
+  raycast_en: true
   inverse_composition_en: false
   exposure_estimate_en: true
   inv_expo_cov: 0.1
+  grid_size: 20
+  # update_size_threshold_
 
 imu:
   imu_en: true

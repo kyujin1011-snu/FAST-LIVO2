@@ -11,6 +11,8 @@ common:
   ros_driver_bug_fix: false
   sync_time_window: 0.07
   num_of_cam: 4
+  run_rate: 5000
+  show_imu_path: false
 
 
 
@@ -62,18 +64,19 @@ preprocess:
   scan_line: 128
   blind: 1.0
 
-vio: #일단 대충
+vio: 
   max_iterations: 5
   outlier_threshold: 1000 # 78 100 156 #100 200 500 700 infinite
   img_point_cov: 100 # 100 1000 
   patch_size: 8
   patch_pyrimid_level: 3
   normal_en: true
-  raycast_en: false
+  raycast_en: true
   inverse_composition_en: false
   exposure_estimate_en: true
   inv_expo_cov: 0.1
-  grid_size: 150
+  grid_size: 5
+  # update_size_threshold_
 
 imu: #일단 ig_lio/config/ncd.yaml 에서 가져옴
 
