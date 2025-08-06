@@ -247,7 +247,7 @@ void LIVMapper::processImu()
   p_imu->Process2(LidarMeasures, _state, feats_undistort); 
   //현재 라이더와 현재 위치(위치,속도등), 전체 라이더 포인트 받고 외괵되지 않은 라이더 포인트 맵 생성i
 
-  if (gravity_align_en) gravityAlignment(); //중력방향으로 z축 맞추는거 할지말지
+  if (gravity_align_en) gravityAlignment(); //중력방향으로 z축 맞추는거 할지말지 디폴트 false
 
   state_propagat = _state;
   voxelmap_manager->state_ = _state;
@@ -298,6 +298,7 @@ void LIVMapper::handleVIO()
     vio_manager->plot_flag = false;
   }
 
+  //아마 processFame은 시간재는건듯
   vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
 
   if (imu_prop_enable) 
